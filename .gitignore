@@ -1,0 +1,226 @@
+# ============================================
+# Android & Kotlin Project .gitignore
+# ============================================
+
+# -------------------- Built Application Files --------------------
+*.apk
+*.ap_
+*.aab
+*.aar
+
+# -------------------- Dalvik/ART VM --------------------
+*.dex
+
+# -------------------- Java/Kotlin Class Files --------------------
+*.class
+
+# -------------------- Generated Files --------------------
+bin/
+gen/
+out/
+release/
+build/
+
+# -------------------- Gradle --------------------
+.gradle/
+**/build/
+gradle-app.setting
+!gradle-wrapper.jar
+!gradle-wrapper.properties
+.gradle-cache/
+
+# -------------------- Local Configuration --------------------
+local.properties
+
+# -------------------- IntelliJ IDEA / Android Studio --------------------
+*.iml
+.idea/
+*.iws
+*.ipr
+*~
+*.swp
+
+# Keep specific IDEA files if needed (uncomment if you want to share some settings)
+# !.idea/codeStyles/
+# !.idea/inspectionProfiles/
+# !.idea/runConfigurations/
+
+# -------------------- Android Studio Navigation --------------------
+.navigation/
+
+# -------------------- Captures Folder --------------------
+captures/
+
+# -------------------- Keystore Files (CRITICAL - Never commit!) --------------------
+*.jks
+*.keystore
+*.p12
+*.pfx
+key.properties
+keystore.properties
+signing.properties
+
+# -------------------- External Native Build --------------------
+.externalNativeBuild/
+.cxx/
+cmake-build-*/
+
+# -------------------- NDK --------------------
+obj/
+.ndk/
+
+# -------------------- Google Services & Firebase --------------------
+google-services.json
+firebase.json
+.firebase/
+
+# -------------------- Freeline --------------------
+freeline.py
+freeline/
+freeline_project_description.json
+
+# -------------------- Fastlane --------------------
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
+fastlane/readme.md
+fastlane/.env
+fastlane/.env.*
+
+# -------------------- Lint --------------------
+lint/
+lint-results*.xml
+lint-results*.html
+lint-baseline.xml
+
+# -------------------- Android Profiling --------------------
+*.hprof
+*.trace
+
+# -------------------- Kotlin --------------------
+.kotlin/
+*.kotlin_module
+
+# -------------------- OS-Specific Files --------------------
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# -------------------- Version Control --------------------
+*.orig
+*.rej
+*.patch
+
+# -------------------- Logs --------------------
+*.log
+logs/
+*.log.*
+
+# -------------------- Backup Files --------------------
+*.bak
+*.gho
+*.ori
+*.tmp
+*.temp
+*~
+
+# -------------------- Maven --------------------
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# -------------------- Signing Files --------------------
+.signing/
+release-keystore/
+
+# -------------------- Test Results --------------------
+test-results/
+test-output/
+*.test
+coverage/
+.coverage
+htmlcov/
+
+# -------------------- Miscellaneous --------------------
+*.pyc
+*.pyo
+*.rbc
+*~.nib
+.settings/
+.loadpath
+.recommenders
+.metadata/
+.classpath
+.project
+.factorypath
+
+# -------------------- Sensitive Data --------------------
+# API keys, secrets, credentials
+secrets.properties
+api-keys.properties
+*.env
+.env.*
+!.env.example
+
+# -------------------- Build Outputs --------------------
+*.so
+*.a
+*.lib
+*.dll
+*.exe
+
+# -------------------- Android Patch --------------------
+gen-external-apklibs/
+
+# -------------------- Proguard --------------------
+proguard/
+mapping.txt
+seeds.txt
+usage.txt
+
+# -------------------- R8 --------------------
+r8-output/
+
+# -------------------- Dependency Directories --------------------
+node_modules/
+jspm_packages/
+
+# -------------------- IDE Specific --------------------
+.vscode/
+.fleet/
+.code-workspace
+
+# -------------------- Documentation Build --------------------
+docs/_build/
+site/
+
+# -------------------- Temporary Files --------------------
+tmp/
+temp/
+*.cache
