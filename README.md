@@ -54,8 +54,8 @@ app/src/main/java/com/example/payo/
 ### 1. Clone and Configure
 
 ```bash
-git clone <repository-url>
-cd payo
+git clone https://github.com/NEXIVO-COMPANY-LIMITED/KNOX.git
+cd KNOX
 ```
 
 ### 2. Add Knox SDK
