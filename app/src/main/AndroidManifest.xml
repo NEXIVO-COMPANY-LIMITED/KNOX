@@ -30,7 +30,7 @@
 
         <!-- ===== MAIN ACTIVITY ===== -->
         <activity
-            android:name=".ui.MainActivity"
+            android:name=".ui.main.MainActivity"
             android:exported="true"
             android:launchMode="singleTop">
             <intent-filter>
@@ -65,7 +65,7 @@
 
         <!-- ===== BACKGROUND SERVICE — Keep app running ===== -->
         <service
-            android:name=".services.DeviceMonitorService"
+            android:name=".service.DeviceMonitorService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 

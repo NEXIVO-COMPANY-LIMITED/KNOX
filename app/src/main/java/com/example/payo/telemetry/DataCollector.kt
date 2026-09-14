@@ -1,80 +1,93 @@
-package com.example.payo.collectors
+package com.example.payo.telemetry
 
+import android.app.ActivityManager
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.net.wifi.WifiManager
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
 import android.provider.Settings
 import android.telephony.TelephonyManager
 import android.util.Log
-import com.example.payo.receiver.MyDeviceAdminReceiver
-import com.example.payo.knox.KnoxManager
 import com.example.payo.data.model.DeviceData
+import com.example.payo.knox.core.KnoxManager
+import com.example.payo.receiver.MyDeviceAdminReceiver
 
+/**
+ * Gathers device-related information and state for reporting purposes.
+ */
 class DataCollector(private val context: Context) {
 
     companion object {
-        const val TAG = "DataCollector"
+        private const val TAG = "DataCollector"
     }
 
     private val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
     private val adminComponent = ComponentName(context, MyDeviceAdminReceiver::class.java)
     private val knoxManager = KnoxManager(context)
 
+    /**
+     * Aggregates device telemetry data into a DeviceData model.
+     *
+     * @param reportType The classification of the report (e.g., PERIODIC, ON_DEMAND).
+     * @return DeviceData instance containing current state.
+     */
     fun collectAll(reportType: String = "PERIODIC"): DeviceData {
-        Log.d(TAG, "Starting data collection...")
+        Log.d(TAG, "Initiating data collection: $reportType")
 
         return DeviceData(
-            deviceId        = getDeviceId(),
-            imei            = getImei(0),
-            imei2           = getImei(1),
-            serialNumber    = getSerial(),
-            model           = Build.MODEL,
-            manufacturer    = Build.MANUFACTURER,
-            brand           = Build.BRAND,
-            deviceName      = getDeviceName(),
+            deviceId = getDeviceId(),
+            imei = getImei(0),
+            imei2 = getImei(1),
+            serialNumber = getSerial(),
+            model = Build.MODEL,
+            manufacturer = Build.MANUFACTURER,
+            brand = Build.BRAND,
+            deviceName = getDeviceName(),
 
-            androidVersion      = Build.VERSION.RELEASE,
-            sdkVersion          = Build.VERSION.SDK_INT,
-            securityPatchLevel  = Build.VERSION.SECURITY_PATCH ?: "UNKNOWN",
-            buildNumber         = Build.DISPLAY,
-            knoxVersion         = knoxManager.getKnoxVersion(),
+            androidVersion = Build.VERSION.RELEASE,
+            sdkVersion = Build.VERSION.SDK_INT,
+            securityPatchLevel = Build.VERSION.SECURITY_PATCH ?: "UNKNOWN",
+            buildNumber = Build.DISPLAY,
+            knoxVersion = knoxManager.getHardwareKnoxVersion(),
 
-            macAddress      = getMacAddress(),
-            ipAddress       = getIpAddress(),
+            macAddress = getMacAddress(),
+            ipAddress = getIpAddress(),
             isWifiConnected = isWifiConnected(),
-            wifiSSID        = getWifiSSID(),
-            carrierName     = getCarrierName(),
-            simCountry      = getSimCountry(),
-            phoneNumber     = getPhoneNumber(),
+            wifiSSID = getWifiSSID(),
+            carrierName = getCarrierName(),
+            simCountry = getSimCountry(),
+            phoneNumber = getPhoneNumber(),
 
-            isEncrypted                 = isEncrypted(),
-            isScreenLockEnabled         = isScreenLockEnabled(),
-            isDeveloperOptionsEnabled   = isDeveloperOptionsEnabled(),
-            isAdbEnabled                = isAdbEnabled(),
-            isRooted                    = knoxManager.isDeviceRooted(),
-            isKnoxActive                = knoxManager.isKnoxActive(),
-            knoxLicenseStatus           = if (knoxManager.isKnoxActive()) "ACTIVATED" else "NOT_ACTIVATED",
+            isEncrypted = isEncrypted(),
+            isScreenLockEnabled = isScreenLockEnabled(),
+            isDeveloperOptionsEnabled = isDeveloperOptionsEnabled(),
+            isAdbEnabled = isAdbEnabled(),
+            isRooted = knoxManager.isDeviceRooted(),
+            isKnoxActive = knoxManager.isKnoxHardwareSupported(),
+            knoxLicenseStatus = if (knoxManager.isLicenseActive()) "ACTIVATED" else "DEACTIVATED",
 
-            isDeviceOwner       = dpm.isDeviceOwnerApp(context.packageName),
-            deviceOwnerPackage  = context.packageName,
+            isDeviceOwner = dpm.isDeviceOwnerApp(context.packageName),
+            deviceOwnerPackage = context.packageName,
 
-            isCameraDisabled    = dpm.getCameraDisabled(adminComponent),
+            isCameraDisabled = dpm.getCameraDisabled(adminComponent),
             isPasswordCompliant = dpm.isActivePasswordSufficient,
-            passwordQuality     = getPasswordQuality(),
+            passwordQuality = getPasswordQuality(),
 
-            batteryLevel        = getBatteryLevel(),
-            totalStorage        = getTotalStorage(),
-            availableStorage    = getAvailableStorage(),
-            totalRam            = getTotalRam(),
+            batteryLevel = getBatteryLevel(),
+            totalStorage = (getTotalStorage() / (1024 * 1024 * 1024)).toInt().toLong(), // Convert to GB
+            availableStorage = (getAvailableStorage() / (1024 * 1024 * 1024)).toInt().toLong(), // Convert to GB
+            totalRam = (getTotalRam() / (1024 * 1024 * 1024)).toInt().toLong(), // Convert to GB
 
             reportTimestamp = System.currentTimeMillis(),
-            reportType      = reportType
+            reportType = reportType
         )
     }
+
+    // --- Identification ---
 
     private fun getDeviceId(): String =
         Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "UNKNOWN"
@@ -105,11 +118,15 @@ class DataCollector(private val context: Context) {
             }
         } catch (e: SecurityException) {
             "PERMISSION_DENIED"
+        } catch (e: Exception) {
+            "UNKNOWN"
         }
     }
 
     private fun getDeviceName(): String =
         Settings.Global.getString(context.contentResolver, "device_name") ?: Build.MODEL
+
+    // --- Connectivity ---
 
     private fun getMacAddress(): String {
         return try {
@@ -161,15 +178,19 @@ class DataCollector(private val context: Context) {
         } catch (e: SecurityException) { "PERMISSION_DENIED" }
     }
 
+    // --- Security & Status ---
+
     private fun isEncrypted(): Boolean {
         val status = dpm.storageEncryptionStatus
         return status == DevicePolicyManager.ENCRYPTION_STATUS_ACTIVE ||
-               status == DevicePolicyManager.ENCRYPTION_STATUS_ACTIVE_DEFAULT_KEY ||
-               status == DevicePolicyManager.ENCRYPTION_STATUS_ACTIVE_PER_USER
+                status == DevicePolicyManager.ENCRYPTION_STATUS_ACTIVE_DEFAULT_KEY ||
+                status == DevicePolicyManager.ENCRYPTION_STATUS_ACTIVE_PER_USER
     }
 
     private fun isScreenLockEnabled(): Boolean {
-        return dpm.getPasswordQuality(adminComponent) > DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED
+        return try {
+            dpm.getPasswordQuality(adminComponent) > DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED
+        } catch (e: Exception) { false }
     }
 
     private fun isDeveloperOptionsEnabled(): Boolean {
@@ -181,22 +202,26 @@ class DataCollector(private val context: Context) {
     }
 
     private fun getPasswordQuality(): String {
-        return when (dpm.getPasswordQuality(adminComponent)) {
-            DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED -> "NONE"
-            DevicePolicyManager.PASSWORD_QUALITY_SOMETHING -> "SOMETHING"
-            DevicePolicyManager.PASSWORD_QUALITY_NUMERIC -> "NUMERIC"
-            DevicePolicyManager.PASSWORD_QUALITY_NUMERIC_COMPLEX -> "NUMERIC_COMPLEX"
-            DevicePolicyManager.PASSWORD_QUALITY_ALPHABETIC -> "ALPHABETIC"
-            DevicePolicyManager.PASSWORD_QUALITY_ALPHANUMERIC -> "ALPHANUMERIC"
-            DevicePolicyManager.PASSWORD_QUALITY_COMPLEX -> "COMPLEX"
-            else -> "UNKNOWN"
-        }
+        return try {
+            when (dpm.getPasswordQuality(adminComponent)) {
+                DevicePolicyManager.PASSWORD_QUALITY_UNSPECIFIED -> "NONE"
+                DevicePolicyManager.PASSWORD_QUALITY_SOMETHING -> "SOMETHING"
+                DevicePolicyManager.PASSWORD_QUALITY_NUMERIC -> "NUMERIC"
+                DevicePolicyManager.PASSWORD_QUALITY_NUMERIC_COMPLEX -> "NUMERIC_COMPLEX"
+                DevicePolicyManager.PASSWORD_QUALITY_ALPHABETIC -> "ALPHABETIC"
+                DevicePolicyManager.PASSWORD_QUALITY_ALPHANUMERIC -> "ALPHANUMERIC"
+                DevicePolicyManager.PASSWORD_QUALITY_COMPLEX -> "COMPLEX"
+                else -> "UNKNOWN"
+            }
+        } catch (e: Exception) { "UNKNOWN" }
     }
+
+    // --- Hardware ---
 
     private fun getBatteryLevel(): Int {
         return try {
-            val bm = context.getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
-            bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+            bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
         } catch (e: Exception) { 0 }
     }
 
@@ -216,8 +241,8 @@ class DataCollector(private val context: Context) {
 
     private fun getTotalRam(): Long {
         return try {
-            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-            val info = android.app.ActivityManager.MemoryInfo()
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val info = ActivityManager.MemoryInfo()
             am.getMemoryInfo(info)
             info.totalMem
         } catch (e: Exception) { 0L }

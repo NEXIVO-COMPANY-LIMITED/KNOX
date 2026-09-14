@@ -2,6 +2,9 @@ package com.example.payo.data.model
 
 import com.google.gson.annotations.SerializedName
 
+/**
+ * Data class representing the comprehensive state and identity of a device.
+ */
 data class DeviceData(
     @SerializedName("deviceId") val deviceId: String,
     @SerializedName("imei") val imei: String,
