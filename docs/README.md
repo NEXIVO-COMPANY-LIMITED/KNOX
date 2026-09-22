@@ -1,45 +1,36 @@
-# Samsung Knox MDM Documentation Portal
+# KNOX Enterprise MDM Documentation
 
-Welcome to the professional documentation portal for the KNOX (Payo) Project. This portal is organized into logical sections to assist different team roles.
+Welcome to the official documentation for the KNOX Mobile Device Management system. This repository contains the professional, bank-grade technical specifications and operational guides for managing a secured fleet of Samsung enterprise devices.
 
----
+## Documentation Structure
 
-## Navigation Tree
+### [01 Strategy](./01_Strategy/README.md)
+Foundational goals, privacy standards, and technical terminology.
+*   [Business Requirements](./01_Strategy/Business_Requirements.md)
+*   [Privacy and Compliance](./01_Strategy/Privacy_and_Compliance.md)
+*   [Glossary](./01_Strategy/Glossary.md)
 
-### 01. Business and Strategy
-Focus: Market fit, lending models, and high-level proposals.
-- [Business Proposal](./01_Business/Business_Proposal.md)
-- [Lending System Details](./01_Business/Lending_System_Details.md)
-- [Privacy and Compliance](./01_Business/Privacy_and_Compliance.md)
-- [Glossary of Terms](./01_Business/Glossary_of_Terms.md)
+### [02 Architecture](./02_Architecture/README.md)
+The structural design and security model of the MDM system.
+*   [Master Architecture](./02_Architecture/Master_Architecture.md)
+*   [Security Model](./02_Architecture/Security_Model.md)
+*   [Operational Flows](./02_Architecture/Operational_Flows.md)
 
-### 02. Technical Architecture
-Focus: System design, sprint planning, and compliance audits.
-- [Architecture Deep-Dive](./02_Technical/Architecture_Deep_Dive.md)
-- [Implementation Roadmap](./02_Technical/Implementation_Roadmap.md)
-- [Gap Analysis and Audit](./02_Technical/Gap_Analysis_Audit.md)
-- [Perfect Loan Enrollment Flow](./02_Technical/Perfect_Loan_Enrollment_Flow.md)
-- [KME Zero-Touch Roadmap](./02_Technical/KME_ZeroTouch_Implementation_Roadmap.md)
-- [API Reference](./02_Technical/API_Reference.md)
+### [03 System Specifications](./03_System_Specifications/README.md)
+Technical details for developers and system architects.
+*   [Backend API Reference](./03_System_Specifications/Backend_API_Reference.md)
+*   [Device DPC Specs](./03_System_Specifications/Device_DPC_Specs.md)
+*   [Database Schema](./03_System_Specifications/Database_Schema.md)
 
-### 03. Practical Guides
-Focus: How-to guides for provisioning and setup.
-- [Device Owner Setup](./03_Guides/Device_Owner_Setup.md)
-- [Backend Server Setup](./03_Guides/Backend_Server_Setup.md)
-- [Knox Deployment Methods](./03_Guides/Knox_Deployment_Methods.md)
-- [Maintenance and Troubleshooting](./03_Guides/Maintenance_and_Troubleshooting.md)
+### [04 Operational Guides](./04_Operational_Guides/README.md)
+Step-by-step instructions for IT administrators and deployment teams.
+*   [Provisioning Guide](./04_Operational_Guides/Provisioning_Guide.md)
+*   [Portal Registration](./04_Operational_Guides/Portal_Registration.md)
+*   [Maintenance and Troubleshooting](./04_Operational_Guides/Maintenance_Troubleshooting.md)
 
-### 04. Design Blueprints
-Focus: Visual diagrams (Mermaid.js) and sequence flows.
-- [Master Diagrams Dashboard](./04_Diagrams/Master_Dashboard.md)
-- [System Architecture](./04_Diagrams/system_architecture.md)
-- [Data Flow Diagram (DFD)](./04_Diagrams/data_flow_diagram.md)
-
-### 05. Backend Operations (sponsa_backend)
-Focus: Database schemas, REST API specs, and flowchart models for the backend engineer.
-- [Backend Implementation Guide](./05_Backend/Knox_Backend_Implementation_Guide.md)
-- [Detailed API Specification Reference](./05_Backend/Knox_Backend_API_Reference.md)
-- [System Architecture Flowcharts Dashboard](./05_Backend/Knox_System_Architecture_Diagrams.md)
+### [05 Implementation Roadmap](./05_Implementation_Roadmap/README.md)
+The strategic plan for development and deployment.
+*   [Full Implementation Plan](./05_Implementation_Roadmap/Full_Implementation_Plan.md)
 
 ---
-Nexivo Enterprise Standards - 2026
+*Nexivo Enterprise Standards - 2026*

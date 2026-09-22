@@ -9,12 +9,13 @@ import androidx.core.app.NotificationCompat
 import com.example.payo.data.model.RemoteCommand
 import com.example.payo.data.repository.DeviceRepository
 import com.example.payo.knox.core.KnoxManager
+import com.example.payo.knox.policy.SecurityCoordinator
 import com.example.payo.telemetry.DataCollector
 import com.example.payo.ui.main.MainActivity
 import kotlinx.coroutines.*
 
 /**
- * Service responsible for periodic telemetry reporting and remote command processing.
+ * 24/7 Foreground Service responsible for telemetry reporting and command processing.
  */
 class DeviceMonitorService : Service() {
 
@@ -25,18 +26,26 @@ class DeviceMonitorService : Service() {
 
         private const val REPORT_INTERVAL_MS = 3600000L      // 1 hour
         private const val HEARTBEAT_INTERVAL_MS = 900000L    // 15 minutes
+        private const val COMPLIANCE_INTERVAL_MS = 300000L   // 5 minutes
         private const val COMMAND_POLL_INTERVAL_MS = 30000L  // 30 seconds
     }
 
-    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private lateinit var dataCollector: DataCollector
     private lateinit var repository: DeviceRepository
+    private lateinit var securityCoordinator: SecurityCoordinator
+    private lateinit var offlineLockManager: com.example.payo.financing.OfflineLockManager
+    private lateinit var complianceManager: com.example.payo.compliance.ComplianceManager
+    private lateinit var auditManager: com.example.payo.audit.AuditManager
     private lateinit var knoxManager: KnoxManager
 
     override fun onCreate() {
         super.onCreate()
         dataCollector = DataCollector(this)
         repository = DeviceRepository()
+        securityCoordinator = SecurityCoordinator(this)
+        offlineLockManager = com.example.payo.financing.OfflineLockManager(this)
+        complianceManager = com.example.payo.compliance.ComplianceManager(this)
+        auditManager = com.example.payo.audit.AuditManager(this)
         knoxManager = KnoxManager(this)
         createNotificationChannel()
     }
@@ -48,7 +57,6 @@ class DeviceMonitorService : Service() {
     }
 
     private fun initiateMonitoringLoops() {
-        // Telemetry Reporting Loop
         serviceScope.launch {
             while (isActive) {
                 delay(REPORT_INTERVAL_MS)
@@ -56,7 +64,6 @@ class DeviceMonitorService : Service() {
             }
         }
 
-        // Heartbeat Signal Loop
         serviceScope.launch {
             while (isActive) {
                 delay(HEARTBEAT_INTERVAL_MS)
@@ -64,7 +71,14 @@ class DeviceMonitorService : Service() {
             }
         }
 
-        // Remote Command Polling Loop
+        serviceScope.launch {
+            while (isActive) {
+                complianceManager.checkCompliance()
+                offlineLockManager.verifyOperationalStatus()
+                delay(COMPLIANCE_INTERVAL_MS)
+            }
+        }
+
         serviceScope.launch {
             while (isActive) {
                 processRemoteCommands()
@@ -77,6 +91,7 @@ class DeviceMonitorService : Service() {
         try {
             val data = dataCollector.collectAll(type)
             repository.sendDeviceReport(data)
+            offlineLockManager.updateLastSyncTimestamp()
         } catch (e: Exception) {
             Log.e(TAG, "Report dispatch failed: ${e.message}")
         }
@@ -86,6 +101,7 @@ class DeviceMonitorService : Service() {
         try {
             val imei = dataCollector.collectAll().imei
             repository.sendHeartbeat(imei)
+            offlineLockManager.updateLastSyncTimestamp()
         } catch (e: Exception) {
             Log.w(TAG, "Heartbeat dispatch failed: ${e.message}")
         }
@@ -95,6 +111,7 @@ class DeviceMonitorService : Service() {
         try {
             val imei = dataCollector.collectAll().imei
             repository.getPendingCommands(imei).onSuccess { commands ->
+                offlineLockManager.updateLastSyncTimestamp()
                 commands.forEach { executeCommand(it, imei) }
             }
         } catch (e: Exception) {
@@ -103,22 +120,23 @@ class DeviceMonitorService : Service() {
     }
 
     private suspend fun executeCommand(command: RemoteCommand, imei: String) {
-        Log.i(TAG, "Executing remote instruction: ${command.type}")
+        Log.i(TAG, "Executing instruction: ${command.type}")
+        auditManager.logEvent("COMMAND", "RECEIVE", "Received ${command.type} instruction from server.")
+        
         try {
             when (command.type) {
-                "LOCK" -> knoxManager.lockDevice()
+                "LOCK" -> securityCoordinator.lockDevice()
                 "WIPE" -> knoxManager.wipeDevice()
-                "REBOOT" -> knoxManager.rebootDevice()
+                "REBOOT" -> securityCoordinator.reboot()
                 "INSTALL_APP" -> command.payload?.let { knoxManager.app.installApplicationSilently(it) }
                 "UNINSTALL_APP" -> command.payload?.let { knoxManager.app.uninstallApplicationSilently(it) }
-                "DISABLE_CAMERA" -> knoxManager.security.setCameraEnabled(false)
-                "ENABLE_CAMERA" -> knoxManager.security.setCameraEnabled(true)
-                "KIOSK_ON" -> command.payload?.let { knoxManager.setKioskMode(true, it) }
-                "KIOSK_OFF" -> knoxManager.setKioskMode(false, "")
+                "KIOSK_ON" -> command.payload?.let { securityCoordinator.setKioskMode(true, it) }
+                "KIOSK_OFF" -> securityCoordinator.setKioskMode(false, "")
+                "UNLOCK_FULL", "OFFBOARD" -> securityCoordinator.clearAllRestrictions()
             }
             repository.acknowledgeCommand(imei, command.id)
         } catch (e: Exception) {
-            Log.e(TAG, "Instruction execution failed for ${command.type}: ${e.message}")
+            Log.e(TAG, "Execution failed for ${command.type}: ${e.message}")
         }
     }
 

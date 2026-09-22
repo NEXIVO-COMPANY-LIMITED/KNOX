@@ -3,32 +3,31 @@ package com.example.payo.receiver
 import android.app.admin.DeviceAdminReceiver
 import android.content.Context
 import android.content.Intent
-import android.util.Log
+import com.example.payo.audit.AuditManager
+import com.example.payo.knox.policy.SecurityCoordinator
 import com.example.payo.ui.main.MainActivity
 
 /**
- * Receiver for device administration events.
+ * Entry point for device admin events and provisioning handshakes.
  */
 class MyDeviceAdminReceiver : DeviceAdminReceiver() {
-    private val TAG = "MyDeviceAdminReceiver"
 
     override fun onEnabled(context: Context, intent: Intent) {
         super.onEnabled(context, intent)
-        Log.d(TAG, "Device administration enabled")
+        AuditManager(context).logEvent("SECURITY", "ADMIN_ENABLED", "Privileges granted.")
+        try { SecurityCoordinator(context).applyFullHardening() } catch (_: Exception) {}
     }
 
     override fun onDisabled(context: Context, intent: Intent) {
         super.onDisabled(context, intent)
-        Log.d(TAG, "Device administration disabled")
     }
 
     override fun onProfileProvisioningComplete(context: Context, intent: Intent) {
         super.onProfileProvisioningComplete(context, intent)
-        Log.d(TAG, "Provisioning completed")
+        AuditManager(context).logEvent("SECURITY", "PROVISIONING_COMPLETE", "Handshake success.")
+        try { SecurityCoordinator(context).applyFullHardening() } catch (_: Exception) {}
         
-        val launchIntent = Intent(context, MainActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
+        val launchIntent = Intent(context, MainActivity::class.java).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
         context.startActivity(launchIntent)
     }
 }
