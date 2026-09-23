@@ -1,21 +1,31 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# ====================================================================
+# PAYO / KNOX MDM DPC — Phase 9.1 ProGuard & R8 Obfuscation Rules
+# ====================================================================
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# 1. Keep Device Admin Receiver (Required by Android OS for Device Owner)
+-keep class com.example.payo.receiver.MyDeviceAdminReceiver { *; }
+-keep class com.example.payo.receiver.MdmDeviceAdminReceiver { *; }
+-keep class com.example.payo.receiver.BootReceiver { *; }
+-keep class com.example.payo.service.DeviceMonitorService { *; }
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# 2. Keep Samsung Knox SDK Classes & Interfaces
+-keep class com.samsung.android.knox.** { *; }
+-dontwarn com.samsung.android.knox.**
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# 3. Obfuscate Internal Helper Classes and Constants
+-repackageclasses 'a'
+-allowaccessmodification
+
+# 4. Strip Debug Logging in Release Builds
+-assumenosideeffects class android.util.Log {
+    public static *** d(...);
+    public static *** v(...);
+}
+
+# 5. Keep Retrofit & Gson Models
+-keepattributes Signature, InnerClasses, *Annotation*
+-keepclassmembers class * {
+    @com.google.gson.annotations.SerializedName <fields>;
+}
+-dontwarn retrofit2.**
+-dontwarn okhttp3.**

@@ -14,6 +14,7 @@ The platform is a **single-tenant, single-organization core MDM system** consist
 
 ### [01 Strategy](./01_Strategy/README.md)
 Foundational goals, scope boundaries, privacy standards, and glossary.
+* [Project Master Overview & Operational Guide](./01_Strategy/Project_Master_Overview_and_Operational_Guide.md)
 * [Business Requirements & Product Scope](./01_Strategy/Business_Requirements.md)
 * [Privacy and Compliance Standards](./01_Strategy/Privacy_and_Compliance.md)
 * [Technical and Business Glossary](./01_Strategy/Glossary.md)
