@@ -1,28 +1,40 @@
-# Security Model and Hardening
+# Security Model and Hardening Architecture
 
-## 1. Dual-Layer Protection Strategy
-The KNOX MDM employs a defense-in-depth approach by combining standard Android Enterprise (AOSP) protections with hardware-bound Samsung Knox security.
+## 1. Dual-Layer Security Architecture
+The KNOX MDM enforces defense-in-depth by combining standard Android Enterprise (`DevicePolicyManager`) protections with hardware-bound Samsung Knox OEM features.
 
-### 1.1 Layer 1: Android Enterprise (AOSP)
-Enforced via the `DevicePolicyManager`, this layer provides the foundation for device management:
-*   **Anti-Uninstall:** Prevents removal of the DPC application.
-*   **OS Restrictions:** Disables guest profiles, factory reset from settings, and unauthorized account addition.
-*   **Standard Encryption:** Ensures all user data partitions are encrypted using system-level keys.
+### 1.1 Layer 1: Android Enterprise Baseline (`[BASE]`)
+Enforced via platform APIs across all managed Android hardware:
+* **Anti-Uninstall Protection:** Device Owner status prevents app removal via Android Settings.
+* **OS Restrictions:** Disables factory reset from settings, USB debugging, USB file transfer, and adding unauthorized accounts.
+* **Credential Policy:** Mandates complex lock screen passcodes.
+* **Storage Encryption:** Verifies OS data partition encryption.
 
-### 1.2 Layer 2: Samsung Knox Hardware
-Interacts directly with the Samsung TrustZone and firmware to provide bank-grade hardening:
-*   **Hardware Fuse Monitoring:** Tracks the Knox Warranty Bit; if tripped, the device is permanently flagged as compromised.
-*   **Firmware Lockdown:** Disables Recovery Mode hardware key combinations and Safe Mode booting.
-*   **Peripheral Control:** Provides granular hardware blocks for USB data signaling, Bluetooth, and Camera at the driver level.
+### 1.2 Layer 2: Samsung Knox OEM Extensions (`[OEM: SAMSUNG]`)
+Applied via the `OemCapabilityProvider` when running on licensed Samsung hardware:
+* **Hardware Key Lockdown:** Blocks hardware key combinations for entering Recovery Mode or Safe Mode.
+* **Granular Firewall:** Restricts APN settings and blocks unauthorized network traffic.
+* **Knox Attestation:** Verifies hardware root-of-trust and monitors Knox Warranty Bit signals.
 
-## 2. Encryption Standards
-*   **Data in Transit:** TLS 1.3 with Certificate Pinning to prevent man-in-the-middle attacks.
-*   **On-Device Storage:** AES-256 encryption for all locally cached management data and identifiers.
-*   **Credential Management:** Hardware-backed storage for all sensitive tokens and license keys within the device's Secure Element (SE).
+## 2. Security Architecture Matrix
 
-## 3. Bank-Grade Hardening Requirements
-To maintain a professional security posture, the following configurations are mandatory:
-*   **Zero-Touch Persistence:** Use of Samsung KME to ensure the DPC is reinstalled even after a device wipe.
-*   **Integrity Attestation:** Daily verification of system integrity via Knox Attestation APIs.
-*   **Root Detection:** Immediate automated lockdown if any unauthorized escalation of privileges is detected.
-*   **USB Port Isolation:** USB ports are restricted to charging only when the device is in a high-security state.
+| Security Control | MVP Standard (Mandatory) | Post-MVP Hardening |
+| :--- | :--- | :--- |
+| **Transport Security** | TLS 1.2+ mandatory, TLS 1.3 preferred | Certificate Pinning in DPC network client |
+| **Device Authentication** | Keystore-backed signed JWT / client certificate | Full mTLS with per-device client certificates |
+| **Key Storage** | Hardware-backed Android Keystore | Hardware Key Attestation during enrollment |
+| **Credential Rotation** | Short-lived Access Token + Refresh Credential | Automated background credential rotation |
+| **Data Encryption** | Column-level encryption for IMEI and sensitive PII | Full application-layer envelope encryption |
+| **API Replay Protection** | Nonces & sequence validation on write endpoints | HMAC request body signing |
+| **Audit Log Protection** | PostgreSQL append-only triggers | Cryptographic hash-chaining |
+
+## 3. Cryptographic Device Identity & Keystore Management
+During enrollment, the DPC generates an RSA or EC keypair inside the hardware-backed **Android Keystore**.
+* Private keys **never** leave the secure element (SE/TEE).
+* The public key is transmitted during `/api/v1/enrollment` to bind the device's identity.
+* Subsequent REST calls sign a request hash or use a Keystore-backed access token, guaranteeing that stolen credentials cannot be used off-device.
+
+## 4. Replay Protection & Least Privilege Command Authorization
+* **Command Signatures:** Every command queued in `commands` carries an `idempotency_key` and an explicit `expires_at` timestamp.
+* **Destructive Commands:** Destructive actions (`WIPE`) require elevated operator scope, explicit confirmation flags, and short expiration windows.
+* **Device Replay Defense:** The DPC tracks executed command IDs in local Room storage, discarding duplicate command deliveries.

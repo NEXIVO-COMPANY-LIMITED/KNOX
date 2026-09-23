@@ -1,20 +1,22 @@
 # Technical and Business Glossary
 
-## 1. General MDM Terminology
-*   **MDM (Mobile Device Management):** A technical framework used to secure and manage mobile devices within an organization.
-*   **DPC (Device Policy Controller):** The specialized Android application that resides on the device to enforce organizational policies.
-*   **Device Owner:** A specific Android mode that grants an application elevated privileges to manage the entire device. This must be set during initial setup on a factory-reset device.
-*   **Provisioning:** The automated process of configuring a device with required applications and security policies.
-*   **Telemetry:** The periodic transmission of device health and security data to the central management server.
+## 1. General MDM & Android Terminology
+* **MDM (Mobile Device Management):** Enterprise system for securing, configuring, and managing corporate mobile fleets.
+* **DPC (Device Policy Controller):** The Kotlin application (`android-mdm`) running on managed Android devices that interacts with `DevicePolicyManager` to enforce security policies.
+* **Device Owner (DO):** The highest privilege management state on Android, granted during setup on a factory-reset device. Allows complete control over restrictions, apps, and security settings.
+* **Device Admin (DA):** Legacy management mode with restricted privileges, subject to user removal in Settings. Sideloaded APKs can only become DA, never DO.
+* **FRP (Factory Reset Protection):** Android security feature linking devices to Google accounts to deter theft. Distinct from MDM management state.
+* **Managed Google Play Enterprise:** Sanctioned EMM integration model for silent installation, updates, and uninstallation of private and public apps on DO devices.
 
-## 2. Samsung Knox Specifics
-*   **Knox SDK:** An advanced set of APIs provided by Samsung that interact directly with the device hardware and firmware.
-*   **KLM (Knox License Management):** The service used to activate enterprise licenses on Samsung devices.
-*   **KME (Knox Mobile Enrollment):** A cloud-based service that automatically deploys the DPC application as soon as a device is connected to the internet for the first time.
-*   **Warranty Bit:** A hardware fuse (Knox bit) that permanently records if a device's security has been compromised via rooting or unauthorized firmware.
-*   **Kiosk Mode:** A lockdown state where the device is restricted to one or more specific applications, disabling navigation and settings.
+## 2. OEM & Samsung Knox Terms
+* **Knox SDK:** Samsung's enterprise API framework for low-level device control beyond baseline Android Enterprise.
+* **KME (Knox Mobile Enrollment):** Samsung's zero-touch enrollment mechanism that auto-triggers DPC installation during initial setup (OOBE).
+* **KLM (Knox License Manager):** Samsung service used to activate Knox Platform for Enterprise (KPE) license keys at runtime.
+* **OemCapabilityProvider:** On-device Kotlin interface that abstracts vendor-specific Knox SDK calls away from core policy logic.
+* **OemIntegration:** Backend service interface for managing vendor-specific portal APIs and licensing workflows.
 
-## 3. System Components
-*   **OemCapabilityProvider:** An internal software interface that abstracts manufacturer-specific functionalities, isolating Samsung Knox logic from the core management engine.
-*   **Compliance Engine:** A system module that monitors device telemetry against a set of security rules and triggers automated responses if violations occur.
-*   **Hard Lock:** A state where the device screen is completely blocked, preventing user interaction until a specific administrative unlock command is received.
+## 3. Architecture & Communication Terms
+* **FCM-Triggered Pull:** Communication model where Firebase Cloud Messaging sends a silent data wake-up ping, prompting the DPC to pull pending commands or policies over HTTPS REST.
+* **Idempotency Key:** Unique header/token included in API calls to ensure retried requests execute exactly once without side effects.
+* **Command Queue:** Durable backend database queue tracking remote commands through `PENDING`, `DELIVERED`, `ACKED`, `SUCCEEDED`, `FAILED`, and `EXPIRED` states.
+* **Audit Log:** Append-only database table capturing immutable records of all state-changing system events.

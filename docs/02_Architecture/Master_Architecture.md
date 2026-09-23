@@ -1,53 +1,92 @@
 # Master Architecture Specification
 
-## 1. System Overview
-The KNOX MDM architecture is built as a single-organization, bank-grade management system. It employs a modular design centered around a "Universal Adapter" pattern to handle multi-layered security requirements.
+## 1. System Architecture Overview
+The KNOX MDM system is built as a single-tenant, single-organization enterprise management platform. It consists of two primary software components:
+1. **Kotlin Device Policy Controller (`android-mdm`):** On-device agent operating as Device Owner.
+2. **Kotlin / Spring Boot Backend (`mdm-backend`):** Stateless REST API server with PostgreSQL storage and Redis caching.
 
-## 2. Universal Adapter: OEM Abstraction Layer
-To ensure long-term maintainability and isolation of manufacturer-specific logic, the system utilizes the `OemCapabilityProvider` interface.
-
-### 2.1 OemCapabilityProvider Interface
-This interface defines the contract for all hardware-level operations:
-*   `activateLicense()`: Manages manufacturer-specific licensing (e.g., Samsung Knox KLM).
-*   `applyHardwareRestrictions()`: Enforces firmware-level blocks on USB, Camera, and Safe Mode.
-*   `configureNetworkIsolation()`: Manages hardware-level firewall and APN settings.
-*   `setLockdownState()`: Controls Kiosk mode and hardware key restrictions.
-
-### 2.2 Samsung Knox Implementation
-The `SamsungKnoxProvider` implements this interface, translating high-level organizational policies into specific Knox SDK calls (e.g., `RestrictionPolicy`, `KioskMode`).
-
-## 3. System Architecture Diagram
-```mermaid
-graph TD
-    subgraph Management Console
-        Dashboard[Admin Portal]
-        Backend[Central Management Server]
-        Auth[Security Token Service]
-        Dashboard --> Backend
-        Backend --> Auth
-    end
-
-    subgraph Infrastructure Services
-        GoogleAPI[Google Android Management API]
-        KnoxAPI[Samsung Knox Cloud Services]
-        Backend --> GoogleAPI
-        Backend --> KnoxAPI
-    end
-
-    subgraph Samsung Enterprise Device
-        DPC[KNOX DPC Application]
-        KnoxSDK[Samsung Knox SDK / Hardware Layer]
-        AOSP[Android Enterprise / DPM Layer]
-
-        DPC --> KnoxSDK
-        DPC --> AOSP
-        DPC -->|Heartbeat/Telemetry| Backend
-        Backend -->|Remote Commands| DPC
-    end
+```
+                         ┌───────────────────────────┐
+                         │   Google / Android Ent.   │
+                         │  (Android Management API, │
+                         │   zero-touch, EMM console)│
+                         └──────────────┬────────────┘
+                                        │
+┌───────────────┐   HTTPS/REST   ┌──────┴─────────┐   FCM push   ┌───────────────┐
+│ Samsung Knox  │◄─────────────►│   MDM Backend   │─────────────►│  Kotlin DPC   │
+│ (KME / Knox   │   admin+data  │   (API, DB,     │◄─────────────┤ App on device │
+│  SDK/API)     │               │    queues)      │  HTTPS pull  │ (Device Owner)│
+└───────────────┘               └────────────────┘              └───────────────┘
 ```
 
-## 4. Modular Core Design
-*   **Telemetry Engine:** Handles periodic collection and secure transmission of device metrics.
-*   **Policy Engine:** Translates server-side JSON policies into local enforcement actions.
-*   **Command Processor:** Executes real-time instructions (Lock, Wipe, Update) with guaranteed delivery logic.
-*   **Security Manager:** Orchestrates dual-layer protection between Android Enterprise and Samsung Knox.
+## 2. OEM Abstraction Architecture
+To prevent Samsung Knox code from leaking into generic Android Enterprise logic, all vendor capabilities are isolated behind abstract interfaces.
+
+### 2.1 Client-Side Abstraction (`OemCapabilityProvider`)
+```kotlin
+interface OemCapabilityProvider {
+    val oemId: String // "SAMSUNG"
+    fun isAvailable(context: DeviceContext): Boolean
+    fun supportedCapabilities(): Set<CapabilityId>
+    fun applyPolicy(capability: CapabilityId, value: PolicyValue): PolicyApplyResult
+    fun collectTelemetry(): Map<CapabilityId, TelemetryValue>
+    fun activateLicense(context: DeviceContext): LicenseActivationResult
+}
+```
+* Core modules (`policy/`, `compliance/`, `applications/`) depend **only** on `OemCapabilityProvider`.
+* All Knox SDK imports are strictly confined to `android-mdm/oem/knox/`.
+
+### 2.2 Backend-Side Abstraction (`OemIntegrationRegistry`)
+The backend uses an `OemIntegrationRegistry` to route device calls dynamically based on `device.oem_id`.
+
+```
+integrations/
+├── android-enterprise/     — Managed Google Play & EMM API client
+├── oem/
+│   ├── OemIntegration.kt   — Interface
+│   ├── OemIntegrationRegistry.kt
+│   └── knox/               — Samsung KME & Knox license integration
+└── fcm/                    — FCM push client
+```
+
+## 3. Communication Transport (FCM-Triggered Pull)
+1. **Data Plane:** HTTPS REST with bearer tokens / certificates.
+2. **Push Wake Signal:** FCM quiet data messages wake the DPC when new commands or policies are queued.
+3. **Polling Backstop:** WorkManager schedules periodic heartbeats to ensure offline or sleeping devices sync reliably upon reconnect.
+
+## 4. System Module Structures
+
+### 4.1 Client Package Structure (`android-mdm/`)
+```
+android-mdm/
+├── app/                     — Application shell, DI wiring, DeviceAdminReceiver
+├── core/                    — Models, dispatchers, logging
+├── enrollment/              — Provisioning extras parsing, token exchange
+├── identity/                — Keystore-backed device credential storage
+├── policy/                  — PolicyEngine & DPM appliers
+├── commands/                — CommandProcessor & execution handlers
+├── applications/            — ApplicationManager (Play EMM installer)
+├── compliance/              — Compliance collectors & evaluators
+├── security/                — Cert pinning, token rotation
+├── networking/              — Retrofit REST client & FCM handler
+├── sync/                    — SynchronizationManager & WorkManager jobs
+├── storage/                 — Room DB & local policy cache
+└── oem/                     — OEM abstraction layer & Knox implementation
+```
+
+### 4.2 Backend Package Structure (`mdm-backend/`)
+```
+mdm-backend/
+├── auth/            — Token issuance & credential verification
+├── enrollment/      — Enrollment token validation
+├── devices/         — Device registry & metadata
+├── policies/        — Policy resolution & assignment
+├── applications/    — Application catalog & assignment
+├── commands/        — Durable command queue management
+├── compliance/      — Compliance rule engine
+├── telemetry/       — Heartbeat ingestion
+├── audit/           — Immutable audit logging
+├── integrations/    — External API clients (Android Enterprise, OEM, FCM)
+├── notifications/   — Internal event dispatching
+└── infrastructure/  — Database migrations, security filters, Redis config
+```

@@ -1,30 +1,31 @@
 # Privacy and Compliance Standards
 
-## 1. Overview
-This document defines the data protection and regulatory compliance framework for the KNOX MDM system. The infrastructure is designed to meet international standards (e.g., GDPR) and local data protection regulations, ensuring that all administrative actions are transparent and legally sound.
+## 1. Governance & Data Protection Overview
+The KNOX MDM infrastructure is built for bank-grade data security and compliance. Designed for corporate-owned fully managed devices (Device Owner mode), the platform enforces strict data minimization, robust encryption, and immutable auditability.
 
-## 2. Data Collection and Retention
-The system collects only the minimum technical identifiers required for device management:
-*   **Hardware Identifiers:** IMEI, Serial Number, and Android ID.
-*   **System Metrics:** Battery health, storage capacity, and RAM utilization.
-*   **Security Indicators:** Root detection status (Knox Warranty Bit), encryption state, and security patch levels.
-*   **Network Metadata:** IP address, carrier information, and connected SSID.
+## 2. Technical Identifier Minimization
+The system collects only necessary technical data required for management:
+* **Hardware Identifiers:** Serial number, encrypted IMEI (application-layer encryption), and Android ID.
+* **Device Metrics:** Battery level, storage utilization, network connection type, and DPC app version.
+* **Security Indicators:** Root detection signals, encryption state, lock screen compliance, OS patch level, and Knox license status.
+* **App Inventory:** Package names and installed versions of corporate applications.
 
-Personal user data, such as private messages, call logs, or personal media, is never collected or accessed by the system.
+*Personal data (private messages, call logs, photos, or browsing history) is never collected or accessible.*
 
-## 3. Data Protection Mechanisms
-*   **Encryption in Transit:** All communication between the Device Policy Controller (DPC) and the backend server is secured using TLS 1.3.
-*   **Encryption at Rest:** Sensitive identifiers and audit logs are stored in a hardened database environment with restricted access.
-*   **Authentication:** Access to management APIs requires multi-factor authentication and cryptographically signed tokens.
+## 3. Data Protection Controls
 
-## 4. Regulatory Compliance
-### 4.1 Consent and Transparency
-*   All devices display a persistent notification and lock-screen message indicating they are managed by the organization.
-*   Policies are clearly communicated to users during the initial device provisioning process.
+| Security Dimension | Implementation Standard |
+| :--- | :--- |
+| **In-Transit Protection** | TLS 1.3 mandatory for all API endpoints; DPC certificate pinning. |
+| **Storage Protection** | Column-level encryption for IMEIs and sensitive fields; Android Keystore storage for private keys. |
+| **Authentication** | Cryptographic device credentials (signed JWT/client certificates) with automated rotation. |
+| **Replay Protection** | Cryptographic nonces and sequence numbers on all state-changing API calls. |
 
-### 4.2 Auditability
-*   The system maintains immutable audit logs for every administrative command (Lock, Wipe, Policy Update).
-*   Logs include the timestamp, performing administrator, and the specific command executed.
+## 4. Audit Trail & Immutability
+All administrative operations, policy changes, and command execution results are written to an append-only `audit_logs` table in PostgreSQL.
+* **Immutability:** Triggers prohibit `UPDATE` or `DELETE` operations on audit rows.
+* **Content:** Each log captures the actor type (`DEVICE`, `OPERATOR`, `SYSTEM`), actor ID, action, target device ID, payload, and ISO 8601 timestamp.
+* **Retention:** Audit logs are retained per regulatory requirements (typically 1–7 years). Raw heartbeats are auto-purged or downsampled after 30–90 days.
 
-### 4.3 Remote Action Policy
-Remote wipe (Factory Reset) and Hard Lock commands are strictly governed by organizational policy and are triggered only in verified cases of security breaches, theft, or critical non-compliance.
+## 5. Destructive Command Governance
+High-risk commands (specifically `WIPE`) require elevated operator privileges, multi-step confirmation flags, and short expiration windows (`expires_at`) to prevent unintended data loss or stale execution.
