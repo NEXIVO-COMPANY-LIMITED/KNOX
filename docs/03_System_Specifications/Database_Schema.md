@@ -7,34 +7,54 @@ The MDM backend uses PostgreSQL for core data persistence, leveraging JSONB for 
 
 ## 2. DDL & Core Table Specifications
 
-### 2.1 `organizations` (Tenancy Root Boundary)
+### 2.1 `stores` (Retail Stores & License Locations)
 ```sql
-CREATE TABLE organizations (
+CREATE TABLE stores (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_license_id VARCHAR(128) NOT NULL UNIQUE,
     name VARCHAR(255) NOT NULL,
+    location VARCHAR(255) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 ```
 
-### 2.2 `devices` (Asset Registry)
+### 2.2 `loans` (Customer Financing & KYC Registry)
 ```sql
-CREATE TABLE devices (
+CREATE TABLE loans (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES organizations(id),
-    enrollment_id UUID,
-    oem_id VARCHAR(64) NOT NULL DEFAULT 'SAMSUNG',
-    serial_number VARCHAR(128) NOT NULL,
-    imei VARCHAR(256), -- Encrypted PII
-    android_id VARCHAR(128),
-    ownership_state VARCHAR(64) NOT NULL DEFAULT 'DEVICE_OWNER',
-    status VARCHAR(64) NOT NULL DEFAULT 'PROVISIONED',
-    last_seen_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    CONSTRAINT uq_devices_org_serial UNIQUE (org_id, serial_number)
+    loan_number VARCHAR(128) NOT NULL UNIQUE, -- e.g. 'LN-2026-08912'
+    customer_name VARCHAR(255) NOT NULL,
+    phone_number VARCHAR(64) NOT NULL,
+    national_id_nida VARCHAR(128) NOT NULL,
+    email VARCHAR(128),
+    physical_address TEXT NOT NULL,
+    occupation VARCHAR(128),
+    guarantor_name VARCHAR(255),
+    guarantor_phone VARCHAR(64),
+    status VARCHAR(64) NOT NULL DEFAULT 'KYC_SUBMITTED', -- 'KYC_SUBMITTED', 'PAYMENT_CONFIRMED', 'ACTIVE', 'COMPLETED'
+    down_payment_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 ```
 
-### 2.3 `device_credentials` (Auth Key Storage)
+### 2.3 `devices` (Asset Registry linked to Stores & Loans)
+```sql
+CREATE TABLE devices (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_id UUID REFERENCES stores(id),
+    loan_id UUID REFERENCES loans(id),
+    agent_id VARCHAR(128) NOT NULL,
+    oem_id VARCHAR(64) NOT NULL DEFAULT 'SAMSUNG',
+    serial_number VARCHAR(128) NOT NULL,
+    imei VARCHAR(256) NOT NULL UNIQUE, -- Column-level encrypted PII
+    ownership_state VARCHAR(64) NOT NULL DEFAULT 'DEVICE_OWNER',
+    status VARCHAR(64) NOT NULL DEFAULT 'PREREGISTERED', -- 'PREREGISTERED', 'KME_QUEUED', 'PROVISIONED', 'LOCKED'
+    last_seen_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+### 2.4 `device_credentials` (Auth Key Storage)
 ```sql
 CREATE TABLE device_credentials (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -43,16 +63,14 @@ CREATE TABLE device_credentials (
     public_key_or_cert TEXT NOT NULL,
     issued_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    revoked_at TIMESTAMP WITH TIME ZONE,
-    rotation_generation INT NOT NULL DEFAULT 1
+    revoked_at TIMESTAMP WITH TIME ZONE
 );
 ```
 
-### 2.4 `enrollment_tokens` (Single-Use Token Storage)
+### 2.5 `enrollment_tokens` (Single-Use Token Storage)
 ```sql
 CREATE TABLE enrollment_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES organizations(id),
     token_hash VARCHAR(256) NOT NULL UNIQUE,
     single_use BOOLEAN DEFAULT TRUE,
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -61,53 +79,12 @@ CREATE TABLE enrollment_tokens (
 );
 ```
 
-### 2.5 `policies` & `policy_field_catalog`
-```sql
-CREATE TABLE policy_field_catalog (
-    field_id VARCHAR(128) PRIMARY KEY,
-    category VARCHAR(64) NOT NULL, -- 'BASE' or 'OEM'
-    required_oem_id VARCHAR(64),   -- e.g. 'SAMSUNG'
-    description TEXT
-);
-
-CREATE TABLE policies (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES organizations(id),
-    name VARCHAR(128) NOT NULL,
-    version INT NOT NULL DEFAULT 1,
-    policy_document JSONB NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-```
-
-### 2.6 `applications` & `application_assignments`
-```sql
-CREATE TABLE applications (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES organizations(id),
-    package_name VARCHAR(256) NOT NULL,
-    display_name VARCHAR(256) NOT NULL,
-    source VARCHAR(64) NOT NULL DEFAULT 'MANAGED_PLAY',
-    latest_version VARCHAR(64)
-);
-
-CREATE TABLE application_assignments (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES organizations(id),
-    application_id UUID NOT NULL REFERENCES applications(id),
-    target_type VARCHAR(64) NOT NULL, -- 'DEVICE' or 'ORG'
-    target_id UUID NOT NULL,
-    install_type VARCHAR(64) NOT NULL -- 'REQUIRED', 'ALLOWED', 'BLOCKED'
-);
-```
-
-### 2.7 `commands` & `command_results` (Durable Command Queue)
+### 2.6 `commands` & `command_results` (Durable Command Queue)
 ```sql
 CREATE TABLE commands (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES organizations(id),
     device_id UUID NOT NULL REFERENCES devices(id),
-    type VARCHAR(64) NOT NULL,
+    type VARCHAR(64) NOT NULL, -- 'LOCK', 'WIPE', 'REBOOT', 'SYNC', 'KIOSK_ON', 'KIOSK_OFF'
     payload JSONB DEFAULT '{}'::jsonb,
     status VARCHAR(64) NOT NULL DEFAULT 'PENDING',
     created_by VARCHAR(128) NOT NULL,
@@ -128,12 +105,11 @@ CREATE TABLE command_results (
 );
 ```
 
-### 2.8 `audit_logs` (Append-Only Immutable Audit Trail)
+### 2.7 `audit_logs` (Append-Only Immutable Audit Trail)
 ```sql
 CREATE TABLE audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES organizations(id),
-    actor_type VARCHAR(64) NOT NULL, -- 'DEVICE', 'OPERATOR', 'SYSTEM'
+    actor_type VARCHAR(64) NOT NULL, -- 'DEVICE', 'AGENT', 'OPERATOR', 'SYSTEM'
     actor_id VARCHAR(128) NOT NULL,
     action VARCHAR(128) NOT NULL,
     target_type VARCHAR(64) NOT NULL,
@@ -155,7 +131,7 @@ BEFORE UPDATE OR DELETE ON audit_logs
 FOR EACH ROW EXECUTE FUNCTION block_audit_log_edits();
 ```
 
-### 2.9 `oem_integration_data`
+### 2.8 `oem_integration_data`
 ```sql
 CREATE TABLE oem_integration_data (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

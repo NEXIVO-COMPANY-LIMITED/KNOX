@@ -2,27 +2,118 @@
 
 ## 1. System Architecture Overview
 The KNOX MDM system is built as a single-tenant, single-organization enterprise management platform. It consists of two primary software components:
-1. **Kotlin Device Policy Controller (`android-mdm`):** On-device agent operating as Device Owner.
+1. **Kotlin Device Policy Controller (`android-mdm`):** On-device agent operating as Device Owner (`com.example.payo`).
 2. **Kotlin / Spring Boot Backend (`mdm-backend`):** Stateless REST API server with PostgreSQL storage and Redis caching.
 
 ```
-                         ┌───────────────────────────┐
-                         │   Google / Android Ent.   │
-                         │  (Android Management API, │
-                         │   zero-touch, EMM console)│
-                         └──────────────┬────────────┘
-                                        │
-┌───────────────┐   HTTPS/REST   ┌──────┴─────────┐   FCM push   ┌───────────────┐
-│ Samsung Knox  │◄─────────────►│   MDM Backend   │─────────────►│  Kotlin DPC   │
-│ (KME / Knox   │   admin+data  │   (API, DB,     │◄─────────────┤ App on device │
-│  SDK/API)     │               │    queues)      │  HTTPS pull  │ (Device Owner)│
-└───────────────┘               └────────────────┘              └───────────────┘
+ ┌────────────────────────────────────────────────────────────────────────┐
+ │                Samsung Knox Cloud Platform (EU Portal)                 │
+ │        (Knox Mobile Enrollment - KME, Knox License Management)          │
+ └───────────────────────────────────▲────────────────────────────────────┘
+                                     │
+                        x-knox-apitoken / RSA JWT
+                        HTTPS REST (Port 443)
+                                     │
+ ┌───────────────────────────────────▼────────────────────────────────────┐
+ │                  MDM Backend Server (`mdm-backend`)                    │
+ │  • Enforces policies, stores device telemetry                          │
+ │  • Generates FCM quiet wake notifications & manages command queues     │
+ └───────────────────────────────────▲────────────────────────────────────┘
+                                     │
+                        Bearer Tokens & HTTPS REST
+                        + FCM Quiet Data Messages
+                                     │
+ ┌───────────────────────────────────▼────────────────────────────────────┐
+ │           Android Device Owner App (`com.example.payo`)                │
+ │  • On-Device Management Agent (`DeviceMonitorService`)                 │
+ │  • Communicates with Samsung Knox Framework via `SamsungKnoxProvider`  │
+ └───────────────────────────────────▲────────────────────────────────────┘
+                                     │
+                       Local Android System IPC
+                                     │
+ ┌───────────────────────────────────▼────────────────────────────────────┐
+ │            Samsung Knox On-Device Hardware & OS Framework              │
+ │  • Enforcement of firmware, kiosk, firewall, and recovery restrictions │
+ └────────────────────────────────────────────────────────────────────────┘
 ```
 
-## 2. OEM Abstraction Architecture
+## 2. Three-Way Communication Transport Architecture
+
+### 2.1 Pathway 1: Device Owner App ↔ MDM Backend Server
+* **Data Transport:** HTTPS REST using OkHttp/Retrofit with bearer tokens and hardware-backed RSA signatures.
+* **Push Wake Signal:** Firebase Cloud Messaging (FCM) quiet data notifications wake `PayoFirebaseMessagingService` to trigger `CommandSyncWorker`.
+* **Telemetry & Heartbeats:** `DeviceMonitorService` dispatches heartbeats every 15 minutes (`POST /api/v1/devices/{imei}/heartbeat`) and telemetry reports every hour (`POST /api/v1/devices/report`).
+* **Command Execution:** App pulls pending commands (`GET /api/v1/devices/{imei}/commands`), executes them via `CommandExecutor`, and submits execution acknowledgments (`POST /api/v1/devices/{imei}/commands/{id}/ack`).
+
+```
+Operator (Admin Console)
+   │ 1. Enqueues command (LOCK / WIPE / KIOSK_ON)
+   ▼
+MDM Backend Server
+   │ 2. Dispatches silent FCM push payload
+   ▼
+PayoFirebaseMessagingService
+   │ 3. Wakes up and triggers WorkManager
+   ▼
+CommandSyncWorker
+   │ 4. GET /api/v1/devices/{imei}/commands
+   ▼
+CommandExecutor
+   │ 5. Executes command via DPM / Knox API
+   ▼
+MDM Backend Server
+     6. POST /api/v1/devices/{imei}/commands/{id}/ack (Result: SUCCEEDED)
+```
+
+### 2.2 Pathway 2: Device Owner App ↔ On-Device Samsung Knox Framework
+* **IPC Transport:** Local Android System IPC to `com.samsung.android.knox.*`.
+* **OEM Abstraction Layer:** All Samsung Knox API calls are encapsulated behind `OemCapabilityProvider` and implemented in `SamsungKnoxProvider`.
+* **License Activation:** Invokes `EnterpriseLicenseManager.activateLicense(KNOX_LICENSE_KEY)`.
+* **Hardware Enforcement:** Interacts with `restrictionPolicy`, `kioskMode`, and `firewall` to block recovery mode, safe boot, factory reset, screenshots, USB/WiFi tethering, and enforce kiosk lockdown.
+
+```
+Device Owner App
+   │
+   ▼
+OemCapabilityProvider Interface
+   │
+   ▼
+SamsungKnoxProvider Implementation
+   │
+   ▼
+EnterpriseDeviceManager (On-Device Samsung Framework)
+   ├── restrictionPolicy (Disable OTA, Factory Reset, USB, SD Card, Screen Capture)
+   ├── kioskMode (Enable/Disable Lockdown Kiosk)
+   ├── firewall (Smart Firewall Rules & Domain Filtering)
+   └── EnterpriseLicenseManager (Activate KLM License Key)
+```
+
+### 2.3 Pathway 3: MDM Backend Server ↔ Samsung Knox Cloud Platform (EU)
+* **API Portal:** EU Region API Portal (`https://eu-api-portal.samsungknox.com`).
+* **Authentication:** Backend signs `clientId` with RSA private key from `keys.json` to obtain access tokens from `https://eu-kcs-api.samsungknox.com/ams/v1/users/accesstoken`. Requests carry `x-knox-apitoken` header.
+* **Knox Mobile Enrollment (KME):** Pre-registers device IMEI/Serial numbers in KME so Samsung devices automatically force silent download and Device Owner installation of the DPC app during initial OOBE setup.
+
+```
+MDM Backend Server                                Samsung Knox Cloud (EU)
+   │                                                         │
+   │  1. Sign clientId with Private Key (from keys.json)     │
+   │                                                         │
+   │  2. POST /ams/v1/users/accesstoken                      │
+   ├────────────────────────────────────────────────────────►│
+   │  3. Returns `accessToken`                               │
+   │◄────────────────────────────────────────────────────────┤
+   │                                                         │
+   │  4. Sign accessToken with Private Key                   │
+   │     ==> Header: x-knox-apitoken: <signedAccessToken>    │
+   │                                                         │
+   │  5. Manage Knox Mobile Enrollment (KME) profile/devices │
+   ├────────────────────────────────────────────────────────►│
+```
+
+## 3. OEM Abstraction Architecture
 To prevent Samsung Knox code from leaking into generic Android Enterprise logic, all vendor capabilities are isolated behind abstract interfaces.
 
-### 2.1 Client-Side Abstraction (`OemCapabilityProvider`)
+### 3.1 Client-Side Abstraction (`OemCapabilityProvider`)
 ```kotlin
 interface OemCapabilityProvider {
     val oemId: String // "SAMSUNG"
@@ -34,9 +125,9 @@ interface OemCapabilityProvider {
 }
 ```
 * Core modules (`policy/`, `compliance/`, `applications/`) depend **only** on `OemCapabilityProvider`.
-* All Knox SDK imports are strictly confined to `android-mdm/oem/knox/`.
+* All Knox SDK imports are strictly confined to `android-mdm/oem/knox/` (`SamsungKnoxProvider`).
 
-### 2.2 Backend-Side Abstraction (`OemIntegrationRegistry`)
+### 3.2 Backend-Side Abstraction (`OemIntegrationRegistry`)
 The backend uses an `OemIntegrationRegistry` to route device calls dynamically based on `device.oem_id`.
 
 ```
@@ -49,11 +140,6 @@ integrations/
 └── fcm/                    — FCM push client
 ```
 
-## 3. Communication Transport (FCM-Triggered Pull)
-1. **Data Plane:** HTTPS REST with bearer tokens / certificates.
-2. **Push Wake Signal:** FCM quiet data messages wake the DPC when new commands or policies are queued.
-3. **Polling Backstop:** WorkManager schedules periodic heartbeats to ensure offline or sleeping devices sync reliably upon reconnect.
-
 ## 4. System Module Structures
 
 ### 4.1 Client Package Structure (`android-mdm/`)
@@ -64,12 +150,12 @@ android-mdm/
 ├── enrollment/              — Provisioning extras parsing, token exchange
 ├── identity/                — Keystore-backed device credential storage
 ├── policy/                  — PolicyEngine & DPM appliers
-├── commands/                — CommandProcessor & execution handlers
+├── commands/                — CommandExecutor & execution handlers
 ├── applications/            — ApplicationManager (Play EMM installer)
 ├── compliance/              — Compliance collectors & evaluators
 ├── security/                — Cert pinning, token rotation
-├── networking/              — Retrofit REST client & FCM handler
-├── sync/                    — SynchronizationManager & WorkManager jobs
+├── networking/              — Retrofit REST client & FCM service
+├── sync/                    — CommandSyncWorker & WorkManager jobs
 ├── storage/                 — Room DB & local policy cache
 └── oem/                     — OEM abstraction layer & Knox implementation
 ```

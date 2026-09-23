@@ -1,6 +1,6 @@
 # Payo - Enterprise Samsung Knox MDM Solution
 
-An Android Mobile Device Management (MDM) application leveraging Device Owner capabilities and Samsung Knox SDK to provide secure device financing and asset management.
+An Android Mobile Device Management (MDM) application leveraging Device Owner capabilities and Samsung Knox Cloud APIs to provide secure device financing and asset management.
 
 ---
 
@@ -9,7 +9,7 @@ Payo is a comprehensive Device Policy Controller (DPC) designed for high-securit
 
 - **Status**: Sprint 4 Implementation Complete (Ready for physical testing).
 - **Core Technology**: Kotlin (Android DPC) + Node.js (Express Backend).
-- **Security**: Hardware-backed Samsung Knox integration.
+- **Security**: Hardware-backed Samsung Knox Cloud Integration (`keys.json` + `clientId`).
 
 ---
 
@@ -30,14 +30,12 @@ For detailed blueprints, business strategy, and setup guides, please refer to th
 ## Quick Start (Developer)
 
 ### 1. Build Android App
-- Place `knoxsdk.aar` in `app/libs/`.
-- Set `SERVER_BASE_URL` and `KNOX_LICENSE_KEY` in `app/build.gradle.kts`.
+- Set `SERVER_BASE_URL` in `app/build.gradle.kts`.
 - Build via `./gradlew assembleDebug`.
 
-### 2. Start Backend
-- Go to `server/` and run `npm install`.
-- Set the `API_KEY` in `index.js`.
-- Run `node index.js`.
+### 2. Start Backend Server & Knox Cloud Authentication
+- Place `keys.json` and set `KNOX_CLIENT_ID` in environment variables.
+- Run `npm install` and start backend server.
 
 ### 3. Provision Device
 ```bash
@@ -47,7 +45,7 @@ adb shell dpm set-device-owner com.example.payo/.receiver.MyDeviceAdminReceiver
 ---
 ## Project Structure
 - `app/`: Android DPC Application (Kotlin).
-- `server/`: MDM Backend API (Node.js + SQLite).
+- `server/`: MDM Backend API (Node.js + PostgreSQL).
 - `docs/`: Professional Documentation and Blueprints.
 
 ---

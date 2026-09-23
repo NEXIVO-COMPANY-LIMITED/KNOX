@@ -1,5 +1,6 @@
 package com.example.payo.data.repository
 
+import android.content.Context
 import android.util.Log
 import com.example.payo.data.model.ApiResponse
 import com.example.payo.data.model.DeviceData
@@ -10,8 +11,9 @@ import kotlinx.coroutines.withContext
 
 /**
  * Repository handling device data operations and synchronization with the remote backend.
+ * Passes X-Device-IMEI header on all network requests.
  */
-class DeviceRepository {
+class DeviceRepository(private val context: Context? = null) {
 
     companion object {
         private const val TAG = "DeviceRepository"
@@ -26,7 +28,7 @@ class DeviceRepository {
     suspend fun enrollDevice(data: DeviceData): Result<ApiResponse> = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Enrolling device: ${data.imei}")
-            val response = apiService.enrollDevice(authHeader, data)
+            val response = apiService.enrollDevice(authHeader, data.imei, data)
             if (response.isSuccessful) {
                 Result.success(response.body()!!)
             } else {
@@ -43,7 +45,7 @@ class DeviceRepository {
     suspend fun enrollSync(data: DeviceData): Result<ApiResponse> = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "Synchronizing hardware metrics for enrollment: ${data.imei}")
-            val response = apiService.enrollSync(authHeader, data)
+            val response = apiService.enrollSync(authHeader, data.imei, data)
             if (response.isSuccessful) {
                 Result.success(response.body()!!)
             } else {
@@ -59,8 +61,8 @@ class DeviceRepository {
      */
     suspend fun sendDeviceReport(data: DeviceData): Result<ApiResponse> = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "Sending device report...")
-            val response = apiService.sendDeviceReport(authHeader, data)
+            Log.d(TAG, "Sending device report for IMEI: ${data.imei}")
+            val response = apiService.sendDeviceReport(authHeader, data.imei, data)
             if (response.isSuccessful) {
                 Result.success(response.body()!!)
             } else {
@@ -76,7 +78,7 @@ class DeviceRepository {
      */
     suspend fun getDeviceStatus(imei: String): Result<ApiResponse> = withContext(Dispatchers.IO) {
         try {
-            val response = apiService.getDeviceStatus(authHeader, imei)
+            val response = apiService.getDeviceStatus(authHeader, imei, imei)
             if (response.isSuccessful) {
                 Result.success(response.body()!!)
             } else {
@@ -92,7 +94,7 @@ class DeviceRepository {
      */
     suspend fun sendHeartbeat(imei: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val response = apiService.sendHeartbeat(authHeader, imei)
+            val response = apiService.sendHeartbeat(authHeader, imei, imei)
             if (response.isSuccessful) {
                 Result.success(Unit)
             } else {
@@ -108,7 +110,7 @@ class DeviceRepository {
      */
     suspend fun getPendingCommands(imei: String): Result<List<RemoteCommand>> = withContext(Dispatchers.IO) {
         try {
-            val response = apiService.getPendingCommands(authHeader, imei)
+            val response = apiService.getPendingCommands(authHeader, imei, imei)
             if (response.isSuccessful) {
                 Result.success(response.body() ?: emptyList())
             } else {
@@ -124,7 +126,7 @@ class DeviceRepository {
      */
     suspend fun acknowledgeCommand(imei: String, commandId: String): Result<ApiResponse> = withContext(Dispatchers.IO) {
         try {
-            val response = apiService.acknowledgeCommand(authHeader, imei, commandId)
+            val response = apiService.acknowledgeCommand(authHeader, imei, imei, commandId)
             if (response.isSuccessful) {
                 Result.success(response.body()!!)
             } else {

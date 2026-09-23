@@ -1,10 +1,13 @@
 package com.example.payo.identity
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.PrivateKey
@@ -12,7 +15,8 @@ import java.security.PublicKey
 import java.security.Signature
 
 /**
- * Manages hardware-backed cryptographic device identity within the Android Keystore.
+ * Manages hardware-backed cryptographic device identity within the Android Keystore
+ * and hardware-encrypted credentials using EncryptedSharedPreferences.
  */
 class DeviceIdentityManager(private val context: Context) {
 
@@ -21,7 +25,7 @@ class DeviceIdentityManager(private val context: Context) {
         private const val KEY_PROVIDER = "AndroidKeyStore"
         private const val KEY_ALIAS = "payo_device_identity_key"
         private const val SIGNATURE_ALGORITHM = "SHA256withRSA"
-        private const val PREFS_NAME = "payo_identity_prefs"
+        private const val PREFS_NAME = "payo_identity_encrypted_prefs"
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_ACCESS_TOKEN = "access_token"
         private const val KEY_REFRESH_TOKEN = "refresh_token"
@@ -31,6 +35,25 @@ class DeviceIdentityManager(private val context: Context) {
 
     init {
         ensureKeyPairGenerated()
+    }
+
+    private fun getSecurePrefs(): SharedPreferences {
+        return try {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+
+            EncryptedSharedPreferences.create(
+                context,
+                PREFS_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "EncryptedSharedPreferences fallback to standard prefs: ${e.message}")
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }
     }
 
     /**
@@ -93,19 +116,18 @@ class DeviceIdentityManager(private val context: Context) {
     }
 
     /**
-     * Persists backend-assigned device identity tokens.
+     * Persists backend-assigned device identity tokens in hardware-encrypted storage.
      */
     fun saveDeviceCredentials(deviceId: String, accessToken: String, refreshToken: String) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit()
+        getSecurePrefs().edit()
             .putString(KEY_DEVICE_ID, deviceId)
             .putString(KEY_ACCESS_TOKEN, accessToken)
             .putString(KEY_REFRESH_TOKEN, refreshToken)
             .apply()
-        Log.i(TAG, "Device credentials saved for Device ID: $deviceId")
+        Log.i(TAG, "Device credentials securely saved for Device ID: $deviceId")
     }
 
-    fun getDeviceId(): String? = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_DEVICE_ID, null)
-    fun getAccessToken(): String? = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_ACCESS_TOKEN, null)
-    fun getRefreshToken(): String? = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_REFRESH_TOKEN, null)
+    fun getDeviceId(): String? = getSecurePrefs().getString(KEY_DEVICE_ID, null)
+    fun getAccessToken(): String? = getSecurePrefs().getString(KEY_ACCESS_TOKEN, null)
+    fun getRefreshToken(): String? = getSecurePrefs().getString(KEY_REFRESH_TOKEN, null)
 }

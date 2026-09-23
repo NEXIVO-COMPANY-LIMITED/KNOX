@@ -4,22 +4,141 @@
 * **Protocol:** HTTPS (TLS 1.2+ minimum, TLS 1.3 preferred).
 * **Base Path:** `/api/v1`
 * **Content Type:** `application/json`
+* **Mandatory Custom Header:** All device-facing network requests MUST pass `X-Device-IMEI: <imei_string>` for rapid API Gateway indexing, Redis rate-limiting, and anti-spoofing verification.
 * **Idempotency:** State-changing `POST`/`PUT` endpoints require an `Idempotency-Key` HTTP header.
+
+### 1.1 End-to-End Device Registration & Provisioning Operational Flow
+```
+[1. Agent App / Portal]
+  │  • Agent anascan Store/Shop License QR Code (`store_id`, `agent_id`)
+  │  • Agent anascan IMEI / Serial ya Box la simu
+  │  • Tuma: POST /api/v1/agent/device-preregister
+  ▼
+[2. Backend Server (`mdm-backend`)]
+  │  • Inatengeneza record ya kifaa (`PREREGISTERED`) ikifunganishwa na duka/agent
+  │  • Inazalisha Namba ya Mkopo: `loan_number` (mfano: `LN-2026-08912`)
+  ▼
+[3. Usajili wa KYC ya Mteja]
+  │  • Agent anaingiza KYC kutumia `loan_number` (Jina, NIDA, Simu, Email, Makazi, Kazi, Wadhamini)
+  │  • Tuma: POST /api/v1/agent/loans/{loan_number}/kyc
+  ▼
+[4. Malipo ya Deposit (Down-Payment)]
+  │  • Mteja analipia Deposit (M-Pesa / Tigo Pesa / Airtel Money / Wakala)
+  │  • Payment Webhook inathibitisha malipo (`PAYMENT_CONFIRMED`)
+  ▼
+[5. Usajili wa IMEI Samsung Knox Cloud (Backend ↔ Samsung KME)]
+  │  • Backend inatuma IMEI kwenda Samsung Knox Cloud API (`x-knox-apitoken` + `reseller_id`)
+  │  • Samsung KME inaink IMEI na Profile ya DPC App + provisioning extras (`enrollment_token`, `loan_number`)
+  ▼
+[6. Kujilock na Kuji-install kwa DPC Simu Inapowashwa (OOBE)]
+  │  • Agent/Mteja anawasha simu mpya (au baada ya factory reset) na kuunganisha Wi-Fi/Cellular
+  │  • Simu inacheki KME Cloud, inatambua IMEI yake imesajiliwa
+  │  • Samsung KME inairazimisha simu kudownload na kuji-install App yetu (`com.example.payo`) kama Device Owner
+  ▼
+[7. Double-Handshake Hardware Verification & Sync]
+  │  • DPC App inaji-install kama Device Owner na kutuma IMEI + Public Key kwenda Backend:
+  │    `POST /api/v1/enrollment`
+  │  • Backend inahakiki: Je, IMEI iliyotumwa na DPC App inafanana 100% na IMEI iliyosajiliwa na Agent kwenye Duka?
+  │  • Verification ikifuzu (`VERIFIED`), Backend inatuma `access_token` na `refresh_token`
+  │  • DPC inatenda usalama wa `AospHardening` + `KnoxHardening` na kuanza background telemetry!
+```
 
 ---
 
-## 2. Device-Facing Endpoints
+## 2. Agent & Onboarding Endpoints
 
-### 2.1 Device Enrollment Exchange
+### 2.1 Agent Store License Scan & Device Pre-Registration
+* **Endpoint:** `POST /api/v1/agent/device-preregister`
+* **Auth:** Agent Bearer Token
+* **Headers:**
+  * `Authorization: Bearer <agent_jwt_token>`
+  * `Idempotency-Key: <UUID>`
+* **Request Payload:**
+```json
+{
+  "store_license_id": "STORE-MBEYA-004",
+  "agent_id": "AGENT-7712",
+  "imei": "356789101112131",
+  "serial_number": "R58M123456XYZ",
+  "hardware_model": "Galaxy A05s"
+}
+```
+* **Response (201 Created):**
+```json
+{
+  "status": "PREREGISTERED",
+  "loan_number": "LN-2026-08912",
+  "imei": "356789101112131",
+  "created_at": "2026-05-10T09:30:00Z"
+}
+```
+
+### 2.2 Customer Onboarding & KYC Submission
+* **Endpoint:** `POST /api/v1/agent/loans/{loan_number}/kyc`
+* **Auth:** Agent Bearer Token
+* **Headers:**
+  * `Authorization: Bearer <agent_jwt_token>`
+* **Request Payload:**
+```json
+{
+  "customer_name": "John Joseph Doe",
+  "phone_number": "+255712345678",
+  "national_id_nida": "19920101-11102-00001-12",
+  "email": "john.doe@example.com",
+  "physical_address": "Mbeya City, Block B, House 12",
+  "occupation": "Trader",
+  "guarantor_name": "Mary Joseph Doe",
+  "guarantor_phone": "+255789012345"
+}
+```
+* **Response (200 OK):**
+```json
+{
+  "loan_number": "LN-2026-08912",
+  "status": "KYC_VERIFIED",
+  "down_payment_required_amount": 150000,
+  "currency": "TZS"
+}
+```
+
+### 2.3 Down-Payment Confirmation Webhook
+* **Endpoint:** `POST /api/v1/payments/downpayment-webhook`
+* **Auth:** Payment Gateway HMAC Signature
+* **Headers:**
+  * `X-Payment-Signature: <hmac_sha256_hash>`
+* **Request Payload:**
+```json
+{
+  "loan_number": "LN-2026-08912",
+  "transaction_reference": "MPESA-99012348A",
+  "amount_paid": 150000,
+  "payment_status": "PAYMENT_CONFIRMED"
+}
+```
+* **Response (200 OK):**
+```json
+{
+  "status": "PAYMENT_VERIFIED",
+  "knox_kme_registration": "QUEUED"
+}
+```
+
+---
+
+## 3. Device-Facing Endpoints
+
+### 3.1 Device Enrollment & Double-Handshake Hardware Verification
 * **Endpoint:** `POST /api/v1/enrollment`
 * **Auth:** Enrollment Token (Single-use, passed in payload)
-* **Headers:** `Idempotency-Key: <UUID>`
+* **Headers:**
+  * `X-Device-IMEI: 356789101112131`
+  * `Idempotency-Key: <UUID>`
 * **Request Payload:**
 ```json
 {
   "enrollment_token": "ET-8f92a10c-3b41-4c12-98ab",
   "serial_number": "R58M123456XYZ",
-  "imei": "356789012345678",
+  "imei": "356789101112131",
   "oem_id": "SAMSUNG",
   "public_key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A..."
 }
@@ -27,6 +146,7 @@
 * **Response (201 Created):**
 ```json
 {
+  "verification_status": "DOUBLE_HANDSHAKE_MATCHED",
   "device_id": "DEV-99102-ABC",
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6...",
   "refresh_token": "RT-40192-XYZ",
@@ -34,9 +154,12 @@
 }
 ```
 
-### 2.2 Device Metadata Registration
+### 3.2 Device Metadata Registration
 * **Endpoint:** `POST /api/v1/devices/register`
 * **Auth:** Device Bearer Token
+* **Headers:**
+  * `Authorization: Bearer <access_token>`
+  * `X-Device-IMEI: 356789101112131`
 * **Request Payload:**
 ```json
 {
@@ -48,9 +171,12 @@
 }
 ```
 
-### 2.3 Device Heartbeat & Telemetry Ingestion
+### 3.3 Device Heartbeat & Telemetry Ingestion
 * **Endpoint:** `POST /api/v1/devices/{id}/heartbeat`
 * **Auth:** Device Bearer Token
+* **Headers:**
+  * `Authorization: Bearer <access_token>`
+  * `X-Device-IMEI: 356789101112131`
 * **Request Payload:**
 ```json
 {
@@ -61,71 +187,33 @@
 }
 ```
 
-### 2.4 Fetch Resolved Policies
+### 3.4 Fetch Resolved Policies
 * **Endpoint:** `GET /api/v1/devices/{id}/policies`
 * **Auth:** Device Bearer Token
-* **Response (200 OK):**
-```json
-{
-  "policy_version": 4,
-  "rules": {
-    "camera_disabled": true,
-    "screen_capture_disabled": true,
-    "password_minimum_length": 8,
-    "knox_kiosk_enabled": false
-  }
-}
-```
+* **Headers:**
+  * `Authorization: Bearer <access_token>`
+  * `X-Device-IMEI: 356789101112131`
 
-### 2.5 Fetch Application Catalog
-* **Endpoint:** `GET /api/v1/devices/{id}/applications`
-* **Auth:** Device Bearer Token
-* **Response (200 OK):**
-```json
-{
-  "applications": [
-    {
-      "package_name": "com.org.corporate.app",
-      "install_type": "REQUIRED",
-      "target_version": "2.1.0"
-    }
-  ]
-}
-```
-
-### 2.6 Fetch Pending Commands
+### 3.5 Fetch Pending Commands
 * **Endpoint:** `GET /api/v1/devices/{id}/commands/pending`
 * **Auth:** Device Bearer Token
-* **Response (200 OK):**
-```json
-{
-  "commands": [
-    {
-      "command_id": "CMD-88102-LNK",
-      "type": "LOCK",
-      "payload": {},
-      "expires_at": "2026-09-22T18:00:00Z"
-    }
-  ]
-}
-```
+* **Headers:**
+  * `Authorization: Bearer <access_token>`
+  * `X-Device-IMEI: 356789101112131`
 
-### 2.7 Report Command Execution Result
-* **Endpoint:** `POST /api/v1/devices/{id}/command-results`
+### 3.6 Acknowledge Command Execution
+* **Endpoint:** `POST /api/v1/devices/{id}/commands/{commandId}/ack`
 * **Auth:** Device Bearer Token
-* **Request Payload:**
-```json
-{
-  "command_id": "CMD-88102-LNK",
-  "result_status": "SUCCEEDED",
-  "result_payload": {},
-  "executed_at": "2026-09-22T13:00:00Z"
-}
-```
+* **Headers:**
+  * `Authorization: Bearer <access_token>`
+  * `X-Device-IMEI: 356789101112131`
 
-### 2.8 Submit Compliance Report
+### 3.7 Submit Compliance Report
 * **Endpoint:** `POST /api/v1/devices/{id}/compliance`
 * **Auth:** Device Bearer Token
+* **Headers:**
+  * `Authorization: Bearer <access_token>`
+  * `X-Device-IMEI: 356789101112131`
 * **Request Payload:**
 ```json
 {
@@ -140,47 +228,17 @@
 
 ---
 
-## 3. Operator / Integration Endpoints
+## 4. Operator / Integration Endpoints
 
-### 3.1 Queue Device Command
+### 4.1 Queue Device Command
 * **Endpoint:** `POST /api/v1/devices/{id}/commands`
 * **Auth:** Operator Service Credential
-* **Headers:** `Idempotency-Key: <UUID>`
-* **Request Payload:**
-```json
-{
-  "type": "LOCK",
-  "payload": { "reason": "Security protocol verification" },
-  "expires_in_seconds": 3600
-}
-```
+* **Headers:**
+  * `Authorization: Bearer <operator_token>`
+  * `Idempotency-Key: <UUID>`
 
-### 3.2 Fetch Compliance Verdict
-* **Endpoint:** `GET /api/v1/devices/{id}/compliance`
-* **Auth:** Operator Service Credential
-* **Response (200 OK):**
-```json
-{
-  "device_id": "DEV-99102-ABC",
-  "status": "COMPLIANT",
-  "evaluated_at": "2026-09-22T13:05:00Z",
-  "violations": []
-}
-```
-
----
-
-## 4. Outbound Integrations — Samsung Knox Cloud API Authentication
-
-Backend integration client (`mdm-backend/integrations/oem/knox/`) authenticates against Samsung Knox Cloud Services using the Knox API Portal JWT signing specification:
-
-1. **Token Acquisition Endpoint:**
-   * `POST https://us-kcs-api.samsungknox.com/ams/v1/users/accesstoken` (or `https://eu-kcs-api.samsungknox.com/ams/v1/users/accesstoken`)
-2. **Authentication Flow:**
-   * Sign `clientId` using private key in `keys.json` to produce `clientIdentifierJwt`.
-   * Submit `base64EncodedStringPublicKey` and `clientIdentifierJwt` to acquire `accessToken`.
-   * Sign `accessToken` with private key to generate `signedAccessToken`.
-3. **Outbound Request Header:**
-   * `x-knox-apitoken: <signedAccessToken>`
-4. **Token Refresh Schedule:**
-   * Tokens are valid for 30 minutes (`validityForAccessTokenInMinutes: 30`). The backend handles proactive refresh prior to expiry or on error code `403225`.
+### 4.2 Outbound Integrations — Samsung Knox Cloud API Authentication
+* **Token Acquisition Endpoint:**
+  `POST https://eu-kcs-api.samsungknox.com/ams/v1/users/accesstoken`
+* **Authentication Header:**
+  `x-knox-apitoken: <signedAccessToken>`

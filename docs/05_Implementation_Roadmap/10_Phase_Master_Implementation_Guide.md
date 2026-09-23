@@ -38,7 +38,7 @@ knox-mdm/
 ### Android (Kotlin DPC)
 * Set up Kotlin Android app package `com.example.payo`.
 * Declare `MyDeviceAdminReceiver` in `AndroidManifest.xml` with `BIND_DEVICE_ADMIN` permission and `res/xml/device_admin_receiver.xml` policies.
-* Include Samsung Knox SDK AAR/JAR in `libs/` (`compileOnly(files("libs/knoxsdk.jar"))`).
+* Integrate with Samsung Knox Cloud Services API via Backend (`keys.json` + `clientId`).
 
 **Checkpoint Phase 1:** `npm run migrate` creates all PostgreSQL tables cleanly; Android app compiles with zero errors.
 

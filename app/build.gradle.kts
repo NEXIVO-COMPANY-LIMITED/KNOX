@@ -62,12 +62,12 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
     implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.firebase.messaging)
+    implementation(libs.androidx.security.crypto)
 
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
-
-    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

@@ -2,24 +2,23 @@
 
 **Document Target:** Backend Engineer  
 **System Role:** MDM Core Server & Integration APIs (Single-Tenant)  
-**Target Tech Stack:** Kotlin + Spring Boot (JDK 21+), PostgreSQL, Redis, FCM, Samsung Knox Cloud APIs  
+**Target Tech Stack:** Kotlin + Spring Boot (JDK 21+) or Node.js / Express, PostgreSQL, Redis, FCM, Samsung Knox Cloud APIs  
 
 ---
 
 ## 1. Executive Summary for the Backend Developer
 Welcome! You are building the backend core for the **KNOX Mobile Device Management (MDM)** platform. Your role is to build a secure, stateless REST API server (`mdm-backend`) that interacts with:
-1. **Android DPC Client (`android-mdm`):** Receives heartbeats, handles device enrollment token exchange, delivers policies, queues/delivers remote commands, and ingests compliance reports.
-2. **Samsung Knox Cloud Services:** Integrates with Samsung Knox APIs (Knox Mobile Enrollment - KME, Knox License Management) using Knox Cloud JWT Authentication.
-3. **Google / Android Enterprise & FCM:** Dispatches silent wake-up push notifications via Firebase Cloud Messaging (FCM).
-
-*Note: There is no web admin frontend UI in this project. You are building REST APIs and outbound integration workers.*
+1. **Agent App / Portal:** Scans store license QR codes, pre-registers device IMEIs, binds customer KYC details, generates loan numbers, and processes down-payments.
+2. **Android DPC Client (`android-mdm`):** Receives heartbeats, executes double-handshake IMEI verification, handles device enrollment token exchange, delivers policies, queues/delivers remote commands, and ingests compliance reports.
+3. **Samsung Knox Cloud Services:** Pre-registers device IMEIs with Samsung Knox Mobile Enrollment (KME) using Knox Cloud Services APIs (`keys.json` + `clientId` + Reseller ID).
+4. **Google / Android Enterprise & FCM:** Dispatches silent wake-up push notifications via Firebase Cloud Messaging (FCM).
 
 ---
 
 ## 2. Samsung Knox Cloud API Integration Setup
 
 ### 2.1 Credentials & Setup Files Required
-You will receive two credentials from the Knox Admin/API Portal:
+You will receive two credentials from the Knox Admin/API Portal (`https://eu-api-portal.samsungknox.com`):
 1. **`keys.json`**: Contains `public_key` and `private_key` (RSA keypair). Store this securely in server environment variables or a secrets manager (Vault). *Never expose this file to client apps.*
 2. **`clientId`**: Client Identifier string generated in the Knox API Portal.
 
@@ -28,7 +27,7 @@ Before calling any Knox Cloud API (e.g., KME profile API or device enrollment sy
 
 1. **Sign `clientId`:** Using the RSA private key from `keys.json`, sign the `clientId` string as a JWT to produce `clientIdentifierJwt`.
 2. **Call Knox Token Endpoint:**
-   * **URL:** `POST https://us-kcs-api.samsungknox.com/ams/v1/users/accesstoken` (or `https://eu-kcs-api.samsungknox.com/ams/v1/users/accesstoken`)
+   * **URL:** `POST https://eu-kcs-api.samsungknox.com/ams/v1/users/accesstoken`
    * **Headers:** `Content-Type: application/json`
    * **Payload:**
      ```json
@@ -47,35 +46,51 @@ Before calling any Knox Cloud API (e.g., KME profile API or device enrollment sy
 
 ## 3. Database Schema Specifications (PostgreSQL)
 
-Set up PostgreSQL using Flyway migrations with the following 16 core tables:
-
-### 3.1 DDL Script
+Set up PostgreSQL using Flyway migrations with the following core tables:
 
 ```sql
--- 1. Organizations (Tenancy Root)
-CREATE TABLE organizations (
+-- 1. Stores & Agents
+CREATE TABLE stores (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_license_id VARCHAR(128) NOT NULL UNIQUE,
     name VARCHAR(255) NOT NULL,
+    location VARCHAR(255) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 2. Devices (Asset Registry)
-CREATE TABLE devices (
+-- 2. Loans & KYC
+CREATE TABLE loans (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES organizations(id),
-    enrollment_id UUID,
-    oem_id VARCHAR(64) NOT NULL DEFAULT 'SAMSUNG',
-    serial_number VARCHAR(128) NOT NULL,
-    imei VARCHAR(256), -- Column-level encrypted PII
-    android_id VARCHAR(128),
-    ownership_state VARCHAR(64) NOT NULL DEFAULT 'DEVICE_OWNER',
-    status VARCHAR(64) NOT NULL DEFAULT 'PROVISIONED',
-    last_seen_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    CONSTRAINT uq_devices_org_serial UNIQUE (org_id, serial_number)
+    loan_number VARCHAR(128) NOT NULL UNIQUE, -- 'LN-2026-08912'
+    customer_name VARCHAR(255) NOT NULL,
+    phone_number VARCHAR(64) NOT NULL,
+    national_id_nida VARCHAR(128) NOT NULL,
+    email VARCHAR(128),
+    physical_address TEXT NOT NULL,
+    occupation VARCHAR(128),
+    guarantor_name VARCHAR(255),
+    guarantor_phone VARCHAR(64),
+    status VARCHAR(64) NOT NULL DEFAULT 'KYC_SUBMITTED',
+    down_payment_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 3. Device Credentials (Auth Keys)
+-- 3. Devices (Asset Registry)
+CREATE TABLE devices (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    store_id UUID REFERENCES stores(id),
+    loan_id UUID REFERENCES loans(id),
+    agent_id VARCHAR(128) NOT NULL,
+    oem_id VARCHAR(64) NOT NULL DEFAULT 'SAMSUNG',
+    serial_number VARCHAR(128) NOT NULL,
+    imei VARCHAR(256) NOT NULL UNIQUE, -- Column-level encrypted PII
+    ownership_state VARCHAR(64) NOT NULL DEFAULT 'DEVICE_OWNER',
+    status VARCHAR(64) NOT NULL DEFAULT 'PREREGISTERED', -- 'PREREGISTERED', 'KME_QUEUED', 'PROVISIONED', 'LOCKED'
+    last_seen_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 4. Device Credentials (Auth Keys)
 CREATE TABLE device_credentials (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
@@ -83,74 +98,16 @@ CREATE TABLE device_credentials (
     public_key_or_cert TEXT NOT NULL,
     issued_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    revoked_at TIMESTAMP WITH TIME ZONE,
-    rotation_generation INT NOT NULL DEFAULT 1
+    revoked_at TIMESTAMP WITH TIME ZONE
 );
 
--- 4. Enrollment Tokens (Single-Use Tokens)
-CREATE TABLE enrollment_tokens (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES organizations(id),
-    token_hash VARCHAR(256) NOT NULL UNIQUE,
-    single_use BOOLEAN DEFAULT TRUE,
-    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    used_at TIMESTAMP WITH TIME ZONE,
-    created_by VARCHAR(128) NOT NULL
-);
-
--- 5. Policy Catalog & Policies
-CREATE TABLE policy_field_catalog (
-    field_id VARCHAR(128) PRIMARY KEY,
-    category VARCHAR(64) NOT NULL, -- 'BASE' or 'OEM'
-    required_oem_id VARCHAR(64),   -- 'SAMSUNG'
-    description TEXT
-);
-
-CREATE TABLE policies (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES organizations(id),
-    name VARCHAR(128) NOT NULL,
-    version INT NOT NULL DEFAULT 1,
-    policy_document JSONB NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE policy_assignments (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES organizations(id),
-    policy_id UUID NOT NULL REFERENCES policies(id),
-    target_type VARCHAR(64) NOT NULL, -- 'DEVICE' or 'ORG'
-    target_id UUID NOT NULL,
-    assigned_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- 6. Applications Catalog
-CREATE TABLE applications (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES organizations(id),
-    package_name VARCHAR(256) NOT NULL,
-    display_name VARCHAR(256) NOT NULL,
-    source VARCHAR(64) NOT NULL DEFAULT 'MANAGED_PLAY',
-    latest_version VARCHAR(64)
-);
-
-CREATE TABLE application_assignments (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES organizations(id),
-    application_id UUID NOT NULL REFERENCES applications(id),
-    target_type VARCHAR(64) NOT NULL,
-    target_id UUID NOT NULL,
-    install_type VARCHAR(64) NOT NULL -- 'REQUIRED', 'ALLOWED', 'BLOCKED'
-);
-
--- 7. Durable Command Queue & Results
+-- 5. Durable Command Queue & Results
 CREATE TABLE commands (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES organizations(id),
     device_id UUID NOT NULL REFERENCES devices(id),
-    type VARCHAR(64) NOT NULL, -- 'LOCK', 'WIPE', 'REBOOT', 'SYNC', 'REFRESH_POLICY', 'INSTALL_APPLICATION'
+    type VARCHAR(64) NOT NULL, -- 'LOCK', 'WIPE', 'REBOOT', 'SYNC', 'KIOSK_ON', 'KIOSK_OFF'
     payload JSONB DEFAULT '{}'::jsonb,
-    status VARCHAR(64) NOT NULL DEFAULT 'PENDING', -- 'PENDING', 'DELIVERED', 'ACKED', 'SUCCEEDED', 'FAILED', 'EXPIRED'
+    status VARCHAR(64) NOT NULL DEFAULT 'PENDING',
     created_by VARCHAR(128) NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -158,48 +115,10 @@ CREATE TABLE commands (
     CONSTRAINT uq_device_idempotency UNIQUE (device_id, idempotency_key)
 );
 
-CREATE TABLE command_results (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    command_id UUID NOT NULL UNIQUE REFERENCES commands(id),
-    device_id UUID NOT NULL REFERENCES devices(id),
-    result_status VARCHAR(64) NOT NULL,
-    result_payload JSONB DEFAULT '{}'::jsonb,
-    executed_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    reported_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- 8. Telemetry, Compliance & Events
-CREATE TABLE device_heartbeats (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    device_id UUID NOT NULL REFERENCES devices(id),
-    received_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    battery INT,
-    network_type VARCHAR(64),
-    app_version VARCHAR(64)
-);
-
-CREATE TABLE compliance_results (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    device_id UUID NOT NULL REFERENCES devices(id),
-    evaluated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    status VARCHAR(64) NOT NULL, -- 'COMPLIANT', 'NON_COMPLIANT'
-    violations JSONB DEFAULT '[]'::jsonb,
-    remediation_command_id UUID REFERENCES commands(id)
-);
-
-CREATE TABLE device_events (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    device_id UUID NOT NULL REFERENCES devices(id),
-    event_type VARCHAR(128) NOT NULL,
-    payload JSONB DEFAULT '{}'::jsonb,
-    occurred_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- 9. Append-Only Immutable Audit Log
+-- 6. Append-Only Immutable Audit Log
 CREATE TABLE audit_logs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id UUID NOT NULL REFERENCES organizations(id),
-    actor_type VARCHAR(64) NOT NULL, -- 'DEVICE', 'OPERATOR', 'SYSTEM'
+    actor_type VARCHAR(64) NOT NULL,
     actor_id VARCHAR(128) NOT NULL,
     action VARCHAR(128) NOT NULL,
     target_type VARCHAR(64) NOT NULL,
@@ -208,7 +127,6 @@ CREATE TABLE audit_logs (
     occurred_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Trigger to enforce audit log immutability
 CREATE OR REPLACE FUNCTION block_audit_log_edits()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -219,154 +137,84 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_audit_log_immutable
 BEFORE UPDATE OR DELETE ON audit_logs
 FOR EACH ROW EXECUTE FUNCTION block_audit_log_edits();
-
--- 10. OEM Integration State
-CREATE TABLE oem_integration_data (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    oem_id VARCHAR(64) NOT NULL DEFAULT 'SAMSUNG',
-    capability_status JSONB DEFAULT '{}'::jsonb,
-    license_status VARCHAR(64),
-    oem_version VARCHAR(64),
-    last_synced_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
 ```
 
 ---
 
-## 4. REST API Endpoint Contracts for Device (`android-mdm`)
+## 4. End-to-End Registration & Provisioning Operational Flow
 
-### 4.1 `POST /api/v1/enrollment`
-* **Purpose:** Exchanges single-use enrollment token + device claims for device access/refresh credentials.
-* **Headers:** `Idempotency-Key: <UUID>`
-* **Request:**
-  ```json
-  {
-    "enrollment_token": "ET-8f92a10c-3b41-4c12-98ab",
-    "serial_number": "R58M123456XYZ",
-    "imei": "356789012345678",
-    "oem_id": "SAMSUNG",
-    "public_key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A..."
-  }
-  ```
-* **Response (201 Created):**
-  ```json
-  {
-    "device_id": "DEV-99102-ABC",
-    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6...",
-    "refresh_token": "RT-40192-XYZ",
-    "expires_in": 3600
-  }
-  ```
+### Step 1: Agent Store License Scan & Device IMEI Pre-Registration
+* **Endpoint:** `POST /api/v1/agent/device-preregister`
+* Agent scans the Store License QR Code (`store_license_id`) and the device IMEI/Serial.
+* Backend creates a `devices` entry with `status = 'PREREGISTERED'` and generates an auto-increment loan number (`LN-2026-XXXXX`).
 
-### 4.2 `POST /api/v1/devices/register`
-* **Purpose:** Ingests hardware, OS, and Knox version metadata post-enrollment.
-* **Auth:** Device Bearer Access Token
-* **Request:**
-  ```json
-  {
-    "android_version": "14",
-    "api_level": 34,
-    "build_number": "UP1A.231005.007",
-    "knox_version": "3.10",
-    "hardware_model": "Galaxy A05s"
-  }
-  ```
+### Step 2: Customer Onboarding & KYC Submission
+* **Endpoint:** `POST /api/v1/agent/loans/{loan_number}/kyc`
+* Agent fills customer details: Full Name, Phone, NIDA, Address, Occupation, Guarantor.
+* Backend stores `loans` record linked to `devices`.
 
-### 4.3 `POST /api/v1/devices/{id}/heartbeat`
-* **Purpose:** Ingests liveness, network type, and storage usage ping.
-* **Auth:** Device Bearer Access Token
-* **Request:**
-  ```json
-  {
-    "battery_percent": 88,
-    "network_type": "WIFI",
-    "app_version": "1.0.0",
-    "storage_free_mb": 14200
-  }
-  ```
+### Step 3: Down-Payment Confirmation
+* **Endpoint:** `POST /api/v1/payments/downpayment-webhook`
+* Customer pays initial deposit via Mobile Money / Agent Cash. Webhook verifies payment (`PAYMENT_CONFIRMED`).
 
-### 4.4 `GET /api/v1/devices/{id}/policies`
-* **Purpose:** Returns effective resolved policy document for device.
-* **Auth:** Device Bearer Access Token
-* **Response (200 OK):**
-  ```json
-  {
-    "policy_version": 4,
-    "rules": {
-      "camera_disabled": true,
-      "screen_capture_disabled": true,
-      "password_minimum_length": 8,
-      "knox_kiosk_enabled": false
+### Step 4: Samsung Knox Cloud KME Pre-Registration
+* Backend automatically calls Samsung Knox Cloud API (`POST /kme/v2/devices`) passing device IMEI, Serial, and Reseller ID.
+* Binds the IMEI to your DPC Organization Profile (`com.example.payo`).
+
+### Step 5: Device Out-Of-Box Setup & Forced DPC Download (OOBE)
+* Customer/Agent powers on the Samsung Galaxy phone.
+* Phone connects to Wi-Fi/Cellular, checks with Samsung KME Cloud, recognizes its registered IMEI, and **forces silent download and Device Owner installation of `com.example.payo`**.
+
+### Step 6: Double-Handshake Hardware IMEI Verification & Token Exchange
+* **Endpoint:** `POST /api/v1/enrollment`
+* Installed DPC App collects local hardware IMEI and RSA Public Key (`DeviceKeyManager`) and submits to backend.
+* **Double-Handshake Verification:** Backend verifies that the IMEI submitted by the DPC App EXACTLY matches the IMEI pre-registered in Step 1 by the agent!
+* Upon match (`VERIFIED`), backend issues `access_token` & `refresh_token`, DPC applies `AospHardening` + `KnoxHardening`, and 24/7 telemetry sync begins.
+
+---
+
+## 5. Emergency Offline HMAC-SHA256 OTP Code Generation (Device Financing)
+
+For device financing/lending environments, when a customer makes an installment payment (via M-Pesa / Airtel Money / USSD / Agent counter) while their device is offline, the backend calculates a **deterministic 6-digit Emergency OTP Code** valid for today and sends it via SMS.
+
+The mathematical algorithm on the backend **must match the Android DPC client (`OfflineLockManager.kt`) line-for-line**.
+
+### 5.1 Shared Cryptographic Secret
+* **Shared Secret String:** `PAYO_MDM_OFFLINE_SECRET_2026_KEY` (Must be stored in Vault / environment variable `OFFLINE_HMAC_SECRET`).
+
+### 5.2 Node.js / TypeScript Implementation
+```javascript
+const crypto = require('crypto');
+
+const HMAC_SHARED_SECRET = process.env.OFFLINE_HMAC_SECRET || "PAYO_MDM_OFFLINE_SECRET_2026_KEY";
+
+/**
+ * Generates a 6-digit deterministic HMAC-SHA256 OTP code for an IMEI and day epoch.
+ * @param {string} imei - Device IMEI number
+ * @param {number} dayEpoch - Days since Jan 1, 1970 (Defaults to today)
+ * @returns {string} 6-digit OTP passcode (e.g. "482910")
+ */
+function generateEmergencyOfflineOtp(imei, dayEpoch = null) {
+    if (!dayEpoch) {
+        dayEpoch = Math.floor(Date.now() / (1000 * 60 * 60 * 24));
     }
-  }
-  ```
 
-### 4.5 `GET /api/v1/devices/{id}/commands/pending`
-* **Purpose:** DPC polls for pending commands. Updates command status from `PENDING` to `DELIVERED`.
-* **Auth:** Device Bearer Access Token
-* **Response (200 OK):**
-  ```json
-  {
-    "commands": [
-      {
-        "command_id": "CMD-88102-LNK",
-        "type": "LOCK",
-        "payload": {},
-        "expires_at": "2026-09-22T18:00:00Z"
-      }
-    ]
-  }
-  ```
+    const message = `${imei}-${dayEpoch}`;
+    const hmac = crypto.createHmac('sha256', HMAC_SHARED_SECRET);
+    hmac.update(message);
+    const hash = hmac.digest(); // Buffer 32 bytes
 
-### 4.6 `POST /api/v1/devices/{id}/command-results`
-* **Purpose:** Ingests execution result from DPC. Updates command status to `SUCCEEDED` or `FAILED` and writes `audit_logs` row.
-* **Auth:** Device Bearer Access Token
-* **Request:**
-  ```json
-  {
-    "command_id": "CMD-88102-LNK",
-    "result_status": "SUCCEEDED",
-    "result_payload": {},
-    "executed_at": "2026-09-23T08:30:00Z"
-  }
-  ```
+    // Bitwise truncation matching Android Java/Kotlin bitwise shift
+    const binary = ((hash[0] & 0x7F) << 24) |
+                   ((hash[1] & 0xFF) << 16) |
+                   ((hash[2] & 0xFF) << 8) |
+                   (hash[3] & 0xFF);
 
-### 4.7 `POST /api/v1/devices/{id}/compliance`
-* **Purpose:** Ingests state telemetry, evaluates compliance rules, stores `compliance_results` entry, and triggers remediation commands (`REFRESH_POLICY` or `LOCK`) if non-compliant.
-* **Auth:** Device Bearer Access Token
-* **Request:**
-  ```json
-  {
-    "report_nonce": "NONCE-910238",
-    "os_patch_level": "2026-08-01",
-    "is_device_owner": true,
-    "is_encrypted": true,
-    "lock_screen_compliant": true,
-    "applied_policy_version": 4
-  }
-  ```
+    const otp = Math.abs(binary) % 1000000;
+    return String(otp).padStart(6, '0');
+}
 
----
-
-## 5. Command Queue & FCM Wake Workflow
-
-1. **Queueing:** When `POST /api/v1/devices/{id}/commands` is called, write a row to `commands` with `status = 'PENDING'` and `expires_at = NOW() + timeout`.
-2. **FCM Quiet Wake Dispatch:** Asynchronously dispatch a silent data payload via FCM to the target device's FCM token:
-   ```json
-   {
-     "data": {
-       "type": "WAKE_SYNC",
-       "timestamp": 1727082000000
-     }
-   }
-   ```
-3. **Device Pull:** The DPC receives the FCM wake, calls `GET /api/v1/devices/{id}/commands/pending`, executes locally, and calls `POST /api/v1/devices/{id}/command-results`.
-4. **Expiration Job:** A scheduled background job periodically updates commands where `status = 'PENDING'` AND `expires_at < NOW()` to `status = 'EXPIRED'`.
-
----
-
-## 6. Key Security & Compliance Rules
-* **Append-Only Auditing:** Every state-changing endpoint **must** write an entry to `audit_logs`.
-* **PII Encryption:** IMEIs must be encrypted using AES-256 before writing to `devices.imei`.
-* **Idempotency:** Enforce `Idempotency-Key` header handling using Redis cache to prevent double-execution of retried requests.
+// Example Usage in Payment Webhook Controller:
+// const currentOtp = generateEmergencyOfflineOtp(device.imei);
+// sendSms(customer.phoneNumber, `Payment Received! Your Emergency Offline Unlock PIN for today is: ${currentOtp}`);
+```

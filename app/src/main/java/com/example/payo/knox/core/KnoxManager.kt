@@ -59,6 +59,18 @@ class KnoxManager(private val context: Context) {
 
     fun isDeviceRooted() = edm?.deviceSecurity?.isDeviceRooted ?: false
 
+    /**
+     * Triggers factory reset / remote wipe.
+     */
+    fun wipeDevice() {
+        try {
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? android.app.admin.DevicePolicyManager
+            dpm?.wipeData(0)
+        } catch (e: Exception) {
+            Log.e("KnoxManager", "Failed to execute remote wipe: ${e.message}")
+        }
+    }
+
     private val licenseReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (EnterpriseLicenseManager.ACTION_LICENSE_STATUS != intent.action) return

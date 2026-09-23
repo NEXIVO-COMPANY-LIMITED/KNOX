@@ -1,19 +1,23 @@
 package com.example.payo.ui.main
 
+import android.app.AlertDialog
 import android.app.admin.DevicePolicyManager
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.text.InputType
+import android.widget.Button
+import android.widget.EditText
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.example.payo.R
 import com.example.payo.data.repository.DeviceRepository
+import com.example.payo.financing.OfflineLockManager
 import com.example.payo.knox.core.KnoxLicenseState
 import com.example.payo.knox.core.KnoxManager
 import com.example.payo.knox.policy.SecurityCoordinator
-import com.example.payo.receiver.MyDeviceAdminReceiver
 import com.example.payo.service.DeviceMonitorService
 import com.example.payo.telemetry.DataCollector
 import kotlinx.coroutines.delay
@@ -21,7 +25,8 @@ import kotlinx.coroutines.launch
 
 /**
  * MainActivity
- * Coordinates the secure enrollment handshake and system status monitoring.
+ * Coordinates the secure enrollment handshake, system status monitoring,
+ * and provides emergency offline unlock capability.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -30,12 +35,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var oemManager: KnoxManager
     private lateinit var dataCollector: DataCollector
     private lateinit var repository: DeviceRepository
+    private lateinit var offlineLockManager: OfflineLockManager
 
     private lateinit var tvStatus: TextView
     private lateinit var tvDeviceOwner: TextView
     private lateinit var tvKnoxStatus: TextView
     private lateinit var tvImei: TextView
     private lateinit var tvServerStatus: TextView
+    private lateinit var btnOfflineUnlock: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,19 +55,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initializeViews() {
-        tvStatus        = findViewById(R.id.tvStatus)
-        tvDeviceOwner   = findViewById(R.id.tvDeviceOwner)
-        tvKnoxStatus    = findViewById(R.id.tvKnoxStatus)
-        tvImei          = findViewById(R.id.tvImei)
-        tvServerStatus  = findViewById(R.id.tvServerStatus)
+        tvStatus          = findViewById(R.id.tvStatus)
+        tvDeviceOwner     = findViewById(R.id.tvDeviceOwner)
+        tvKnoxStatus      = findViewById(R.id.tvKnoxStatus)
+        tvImei            = findViewById(R.id.tvImei)
+        tvServerStatus    = findViewById(R.id.tvServerStatus)
+        btnOfflineUnlock  = findViewById(R.id.btnOfflineUnlock)
+
+        btnOfflineUnlock.setOnClickListener { showOfflineUnlockDialog() }
     }
 
     private fun initializeComponents() {
-        dpm             = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-        coordinator     = SecurityCoordinator(this)
-        oemManager      = KnoxManager(this)
-        dataCollector   = DataCollector(this)
-        repository      = DeviceRepository()
+        dpm                = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        coordinator        = SecurityCoordinator(this)
+        oemManager         = KnoxManager(this)
+        dataCollector      = DataCollector(this)
+        repository         = DeviceRepository()
+        offlineLockManager = OfflineLockManager(this)
     }
 
     private fun startSecurityServices() {
@@ -119,6 +130,35 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Prompts the user or field agent to enter a 6-digit emergency offline OTP unlock code.
+     */
+    private fun showOfflineUnlockDialog() {
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            hint = "Enter 6-digit Emergency Code"
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Emergency Offline Unlock")
+            .setMessage("If you are offline, request a 6-digit unlock passcode from customer support and enter it below:")
+            .setView(input)
+            .setPositiveButton("Unlock") { dialog, _ ->
+                val code = input.text.toString().trim()
+                val imei = dataCollector.collectAll().imei
+                val isSuccess = offlineLockManager.verifyOfflineUnlockCode(code, imei)
+                if (isSuccess) {
+                    Toast.makeText(this, "Device Unlocked Successfully!", Toast.LENGTH_LONG).show()
+                    updateUI(tvStatus, "Emergency Offline Unlock Active.")
+                } else {
+                    Toast.makeText(this, "Invalid Emergency Code. Try Again.", Toast.LENGTH_LONG).show()
+                }
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
+            .show()
     }
 
     private fun updateUI(view: TextView, text: String) {

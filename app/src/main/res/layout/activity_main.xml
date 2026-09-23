@@ -68,4 +68,11 @@
         android:layout_height="wrap_content"
         android:visibility="gone"/>
 
+    <Button
+        android:id="@+id/btnOfflineUnlock"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Emergency Offline Unlock"
+        android:layout_marginTop="20dp"/>
+
 </LinearLayout>
