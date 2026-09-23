@@ -26,6 +26,7 @@ System architecture, OEM abstraction, operational flows, and security model.
 
 ### [03 System Specifications](./03_System_Specifications/README.md)
 Detailed technical specifications for developers and architects.
+* [Samsung Knox Backend Master Implementation Guide](./03_System_Specifications/Samsung_Knox_Backend_Server_Complete_Guide.md)
 * [Backend Developer Handoff Guide](./03_System_Specifications/Backend_Developer_Handoff_Guide.md)
 * [Backend REST API Reference](./03_System_Specifications/Backend_API_Reference.md)
 * [Database Schema & Data Architecture (PostgreSQL)](./03_System_Specifications/Database_Schema.md)
