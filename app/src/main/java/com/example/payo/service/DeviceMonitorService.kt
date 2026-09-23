@@ -10,12 +10,13 @@ import com.example.payo.data.model.RemoteCommand
 import com.example.payo.data.repository.DeviceRepository
 import com.example.payo.knox.core.KnoxManager
 import com.example.payo.knox.policy.SecurityCoordinator
+import com.example.payo.security.AntiTamperManager
 import com.example.payo.telemetry.DataCollector
 import com.example.payo.ui.main.MainActivity
 import kotlinx.coroutines.*
 
 /**
- * 24/7 Foreground Service responsible for telemetry reporting and command processing.
+ * 24/7 Foreground Service responsible for telemetry reporting, anti-tamper monitoring, and command processing.
  */
 class DeviceMonitorService : Service() {
 
@@ -30,6 +31,8 @@ class DeviceMonitorService : Service() {
         private const val COMMAND_POLL_INTERVAL_MS = 30000L  // 30 seconds
     }
 
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
     private lateinit var dataCollector: DataCollector
     private lateinit var repository: DeviceRepository
     private lateinit var securityCoordinator: SecurityCoordinator
@@ -37,6 +40,7 @@ class DeviceMonitorService : Service() {
     private lateinit var complianceManager: com.example.payo.compliance.ComplianceManager
     private lateinit var auditManager: com.example.payo.audit.AuditManager
     private lateinit var knoxManager: KnoxManager
+    private lateinit var antiTamperManager: AntiTamperManager
 
     override fun onCreate() {
         super.onCreate()
@@ -47,6 +51,7 @@ class DeviceMonitorService : Service() {
         complianceManager = com.example.payo.compliance.ComplianceManager(this)
         auditManager = com.example.payo.audit.AuditManager(this)
         knoxManager = KnoxManager(this)
+        antiTamperManager = AntiTamperManager(this)
         createNotificationChannel()
     }
 
@@ -73,6 +78,7 @@ class DeviceMonitorService : Service() {
 
         serviceScope.launch {
             while (isActive) {
+                antiTamperManager.verifyIntegrity()
                 complianceManager.checkCompliance()
                 offlineLockManager.verifyOperationalStatus()
                 delay(COMPLIANCE_INTERVAL_MS)

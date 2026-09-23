@@ -1,6 +1,7 @@
 package com.example.payo.knox.policy
 
 import android.content.Context
+import com.example.payo.policy.PolicyEngine
 import com.example.payo.oem.OemProviderFactory
 
 /**
@@ -8,19 +9,18 @@ import com.example.payo.oem.OemProviderFactory
  */
 class SecurityCoordinator(context: Context) {
 
+    private val policyEngine = PolicyEngine(context)
     private val androidEnterpriseManager = AndroidEnterpriseManager(context)
     private val oemProvider = OemProviderFactory.getProvider(context)
 
     /** Executes full hardware and software security hardening. */
     fun applyFullHardening() {
-        androidEnterpriseManager.applyEnterprisePolicies()
-        if (oemProvider.isAvailable()) oemProvider.applyHardwareHardening()
+        policyEngine.applyFullPolicySet()
     }
 
     /** Clears all restrictions during device offboarding. */
     fun clearAllRestrictions() {
-        androidEnterpriseManager.clearEnterprisePolicies()
-        oemProvider.clearHardwareRestrictions()
+        policyEngine.clearFullPolicySet()
         oemProvider.setKioskMode(false, "")
     }
 
