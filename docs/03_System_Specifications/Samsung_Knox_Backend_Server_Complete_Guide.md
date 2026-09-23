@@ -1,7 +1,8 @@
-# Samsung Knox Backend Server: Master Technical & API Integration Guide
+# Samsung Knox Backend Server: Master Technical & API Integration Guide (EU Primary)
 
 **Document Audience:** Backend Engineers, System Architects, DevOps Engineers  
 **Scope:** Complete End-to-End Implementation of the Samsung Knox Cloud API Integration & MDM Backend Server  
+**Default Region:** **EU / Europe & Africa (`https://eu-api-portal.samsungknox.com`)**  
 **Version:** 1.0.0 (Production Enterprise Standard)  
 
 ---
@@ -12,7 +13,7 @@ The **Samsung Knox Backend Server** (`mdm-backend`) serves as the central integr
 
 ```
  ┌────────────────────────────────────────────────────────────────────────┐
- │                      Samsung Knox Cloud Platform                       │
+ │                   Samsung Knox Cloud Platform (EU)                     │
  │  (KME, Knox Guard, Knox E-FOTA, Knox License Management, Webhooks)     │
  └───────────────────────────────────▲────────────────────────────────────┘
                                      │
@@ -43,20 +44,20 @@ The **Samsung Knox Backend Server** (`mdm-backend`) serves as the central integr
 
 Before writing backend code, the administrator must complete the Samsung Knox Portal setup to obtain the server authentication credentials.
 
-### 2.1 Regional API Portal Selection
+### 2.1 Regional API Portal Selection (EU Primary)
 
 Select the Knox API Portal corresponding to your server hosting region:
 
-| Region | Portal URL | Primary Data Center |
-| :--- | :--- | :--- |
-| **US / Global** | `https://us-api-portal.samsungknox.com` | North America |
-| **EU / Africa** | `https://eu-api-portal.samsungknox.com` | Europe |
+| Region | Portal URL | Primary Data Center | Default |
+| :--- | :--- | :--- | :---: |
+| **EU / Africa** | `https://eu-api-portal.samsungknox.com` | Europe (Frankfurt) | **YES (Primary)** |
+| **US / Global** | `https://us-api-portal.samsungknox.com` | North America | Secondary |
 
 ---
 
 ### 2.2 Step-by-Step Portal Credentials Generation
 
-1. **Log in to Samsung Knox Admin/API Portal:** Access the portal URL for your region using your enterprise Samsung Knox account (`support@nexivo.account.samsung.com`).
+1. **Log in to Samsung Knox Admin/API Portal:** Access the EU portal (`https://eu-api-portal.samsungknox.com`) using your enterprise Samsung Knox account (`support@nexivo.account.samsung.com`).
 2. **Download Key Pair (`keys.json`):**
    * Navigate to **Download public and private key pair**.
    * Click **DOWNLOAD THE JSON FILE** to generate and download `keys.json`.
@@ -91,7 +92,7 @@ Samsung Knox Cloud APIs require **Signed JWT Authentication**. Every request sen
 │                 │  2. POST /ams/v1/users/accesstoken            │                 │
 │                 ├──────────────────────────────────────────────►│  Samsung Knox   │
 │   MDM Backend   │     (publicKey + clientIdentifierJwt)         │  Cloud Services │
-│     Server      │                                               │  (AMS Server)   │
+│   Server (EU)   │                                               │   (EU Region)   │
 │                 │◄──────────────────────────────────────────────┤                 │
 │                 │  3. Returns `accessToken`                     │                 │
 │                 │                                               │                 │
@@ -106,10 +107,10 @@ Samsung Knox Cloud APIs require **Signed JWT Authentication**. Every request sen
 
 ---
 
-### 3.2 Access Token REST Request Format
+### 3.2 Access Token REST Request Format (EU Region)
 
-* **Endpoint (US):** `POST https://us-kcs-api.samsungknox.com/ams/v1/users/accesstoken`
-* **Endpoint (EU):** `POST https://eu-kcs-api.samsungknox.com/ams/v1/users/accesstoken`
+* **Primary Endpoint (EU):** `POST https://eu-kcs-api.samsungknox.com/ams/v1/users/accesstoken`
+* **Alternative Endpoint (US):** `POST https://us-kcs-api.samsungknox.com/ams/v1/users/accesstoken`
 * **Headers:** `Content-Type: application/json`
 * **Request Body Payload:**
 ```json
@@ -129,7 +130,7 @@ Samsung Knox Cloud APIs require **Signed JWT Authentication**. Every request sen
 
 ---
 
-## 4. Complete Code Implementations for Backend Server
+## 4. Complete Code Implementations for Backend Server (EU Region)
 
 ### 4.1 Node.js / JavaScript Implementation
 
@@ -145,8 +146,8 @@ const fs = require('fs');
 const axios = require('axios');
 const knoxTokenLibraryJs = require('knox-token-library-js');
 
-// Configuration
-const KNOX_REGION = process.env.KNOX_REGION || 'us'; // 'us' or 'eu'
+// Configuration - Defaults to EU Region
+const KNOX_REGION = process.env.KNOX_REGION || 'eu'; // Primary: 'eu', Secondary: 'us'
 const KNOX_AMS_URL = `https://${KNOX_REGION}-kcs-api.samsungknox.com/ams/v1/users/accesstoken`;
 const KEYS_FILE_PATH = process.env.KEYS_JSON_PATH || './keys.json';
 const CLIENT_ID = process.env.KNOX_CLIENT_ID;
@@ -178,7 +179,7 @@ async function getSignedAccessToken() {
         const signedClientId = knoxTokenLibraryJs.generateSignedClientIdentifierJWT(KEYS_FILE_PATH, CLIENT_ID);
         const publicKey = getPublicKey();
 
-        // Step 2: Fetch access token from Samsung Knox AMS API
+        // Step 2: Fetch access token from Samsung Knox AMS API (EU Endpoint)
         const response = await axios.post(KNOX_AMS_URL, {
             base64EncodedStringPublicKey: publicKey,
             clientIdentifierJwt: signedClientId,
@@ -196,7 +197,7 @@ async function getSignedAccessToken() {
         cachedSignedAccessToken = signedAccessToken;
         tokenExpirationTime = now + (25 * 60 * 1000);
 
-        console.log('[KnoxAuth] Successfully acquired & signed fresh Knox Access Token.');
+        console.log(`[KnoxAuth] Successfully acquired & signed fresh Knox Access Token (${KNOX_REGION.toUpperCase()} Region).`);
         return signedAccessToken;
     } catch (error) {
         console.error('[KnoxAuth] Failed to acquire Knox access token:', error.response ? error.response.data : error.message);
@@ -264,7 +265,7 @@ import java.time.Instant
 
 @Service
 class KnoxAuthenticationService(
-    @Value("\${knox.api.region:us}") private val region: String,
+    @Value("\${knox.api.region:eu}") private val region: String, // Defaults to 'eu'
     @Value("\${knox.api.client-id}") private val clientId: String,
     @Value("\${knox.api.keys-json-path:./keys.json}") private val keysJsonPath: String,
     private val restTemplate: RestTemplate,
@@ -291,7 +292,7 @@ class KnoxAuthenticationService(
         // Step 1: Sign Client ID using Samsung Knox Token Library
         val signedClientId = KnoxTokenLibrary.generateSignedClientIdentifierJWT(keysJsonPath, clientId)
 
-        // Step 2: Request access token from Knox AMS Endpoint
+        // Step 2: Request access token from Knox AMS Endpoint (EU Region)
         val amsUrl = "https://$region-kcs-api.samsungknox.com/ams/v1/users/accesstoken"
         val requestBody = mapOf(
             "base64EncodedStringPublicKey" to publicKey,
@@ -327,7 +328,7 @@ class KnoxAuthenticationService(
 
 ---
 
-### 4.3 cURL Direct Token Acquisition Example
+### 4.3 cURL Direct Token Acquisition Example (EU Region)
 
 #### Step 1: Generate `signedClientId` using local token library
 ```bash
@@ -337,9 +338,9 @@ console.log(knox.generateSignedClientIdentifierJWT('keys.json', '<YOUR_CLIENT_ID
 "
 ```
 
-#### Step 2: Send POST request to Knox AMS API
+#### Step 2: Send POST request to EU Knox AMS API
 ```bash
-curl -X POST "https://us-kcs-api.samsungknox.com/ams/v1/users/accesstoken" \
+curl -X POST "https://eu-kcs-api.samsungknox.com/ams/v1/users/accesstoken" \
      -H "Content-Type: application/json" \
      -d '{
        "base64EncodedStringPublicKey": "<PUBLIC_KEY_FROM_KEYS_JSON>",
@@ -356,24 +357,24 @@ console.log(knox.generateSignedAccessTokenJWT('keys.json', '<ACCESS_TOKEN_FROM_S
 "
 ```
 
-#### Step 4: Execute Knox Cloud API Call (e.g., KME Profile List)
+#### Step 4: Execute Knox Cloud API Call (EU KME Profile List)
 ```bash
-curl -X GET "https://us-kcs-api.samsungknox.com/kme/v1/profiles" \
+curl -X GET "https://eu-kcs-api.samsungknox.com/kme/v1/profiles" \
      -H "x-knox-apitoken: <SIGNED_ACCESS_TOKEN_FROM_STEP_3>" \
      -H "Content-Type: application/json"
 ```
 
 ---
 
-## 5. Knox Cloud Services API Modules Supported
+## 5. Knox Cloud Services API Modules Supported (EU Endpoints)
 
-Once authenticated using `x-knox-apitoken`, the backend can interface with all Knox Cloud Service modules:
+Once authenticated using `x-knox-apitoken`, the backend can interface with all Knox Cloud Service modules using EU base endpoints (`https://eu-kcs-api.samsungknox.com`):
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                       Samsung Knox Cloud API Modules                        │
+│                   Samsung Knox Cloud API Modules (EU Base)                  │
 ├──────────────────────┬──────────────────────┬───────────────────────────────┤
-│ Module               │ Endpoint Base Path   │ Primary Capability            │
+│ Module               │ EU Endpoint Path     │ Primary Capability            │
 ├──────────────────────┼──────────────────────┼───────────────────────────────┤
 │ Knox Mobile          │ `/kme/v1`            │ Zero-touch device registration│
 │ Enrollment (KME)     │                      │ & DPC profile assignments     │
@@ -681,5 +682,5 @@ CREATE TABLE oem_integration_data (
 | :--- | :--- | :--- |
 | **`403225`** | Access token expired | Access token expired after 30 minutes. Clear cached token and invoke `/ams/v1/users/accesstoken` to refresh. |
 | **`401000`** | Invalid signature | Public/Private key mismatch or corrupted JWT signature. Verify `keys.json`. |
-| **`400001`** | Invalid client identifier | Client ID string mismatch. Re-generate `clientId` in Knox API Portal. |
+| **`400001`** | Invalid client identifier | Client ID string mismatch. Re-generate `clientId` in EU Knox API Portal (`https://eu-api-portal.samsungknox.com`). |
 | **`403001`** | Unauthorized API scope | Account lacks permission for the specific Knox service (e.g. KME or Knox Guard). Contact Samsung Knox support. |
