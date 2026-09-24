@@ -28,7 +28,7 @@ This diagram details the complete financing onboarding flow starting from the Sa
 [6. Device Unboxing & Forced OOBE DPC Installation]
   │  • Agent/Customer powers on phone (or reboots after factory reset)
   │  • Phone connects to network, checks KME Cloud, detects registered IMEI
-  │  • Samsung KME forces silent download & Device Owner installation of `com.example.payo`
+  │  • Samsung KME forces silent download & Device Owner installation of `com.nexivo.payo`
   ▼
 [7. Double-Handshake Hardware IMEI Verification & Provisioning Completion]
   │  • DPC App installs as Device Owner, collects local IMEI & RSA Public Key

@@ -56,7 +56,7 @@ Sideloading an APK via `adb install` or manual download can only grant **Device 
 4. Scan the enterprise-generated QR code containing the provisioning payload:
 ```json
 {
-  "android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME": "com.example.payo/.receiver.MyDeviceAdminReceiver",
+  "android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME": "com.nexivo.payo/.receiver.MyDeviceAdminReceiver",
   "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION": "https://mdm.enterprise.org/apk/dpc-release.apk",
   "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_CHECKSUM": "a3f5b8...",
   "android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE": {

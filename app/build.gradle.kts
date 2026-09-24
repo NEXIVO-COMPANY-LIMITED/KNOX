@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.payo"
+    namespace = "com.nexivo.payo"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.payo"
+        applicationId = "com.nexivo.payo"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

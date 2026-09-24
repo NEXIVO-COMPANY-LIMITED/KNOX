@@ -39,7 +39,7 @@ For detailed blueprints, business strategy, and setup guides, please refer to th
 
 ### 3. Provision Device
 ```bash
-adb shell dpm set-device-owner com.example.payo/.receiver.MyDeviceAdminReceiver
+adb shell dpm set-device-owner com.nexivo.payo/.receiver.MyDeviceAdminReceiver
 ```
 
 ---

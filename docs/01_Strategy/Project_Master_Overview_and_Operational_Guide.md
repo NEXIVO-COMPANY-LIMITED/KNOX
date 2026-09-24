@@ -49,7 +49,7 @@ The **KNOX MDM Platform** is a dedicated enterprise infrastructure engineered to
 ### Step 1: Procurement & Pre-Registration
 * Corporate Samsung Galaxy devices are purchased or registered in the **Samsung Knox Admin Portal** (KME) using reseller IDs or direct IMEI/serial uploads.
 * Devices are associated with a KME profile containing:
-  * DPC Package Name: `com.example.payo`
+  * DPC Package Name: `com.nexivo.payo`
   * DPC Download Location: Secure HTTPS APK URL
   * Admin Extras Bundle (`PROVISIONING_ADMIN_EXTRAS_BUNDLE`): `server_url`, `enrollment_token`, `org_id`.
 

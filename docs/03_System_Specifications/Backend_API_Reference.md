@@ -33,7 +33,7 @@
 [6. Kujilock na Kuji-install kwa DPC Simu Inapowashwa (OOBE)]
   │  • Agent/Mteja anawasha simu mpya (au baada ya factory reset) na kuunganisha Wi-Fi/Cellular
   │  • Simu inacheki KME Cloud, inatambua IMEI yake imesajiliwa
-  │  • Samsung KME inairazimisha simu kudownload na kuji-install App yetu (`com.example.payo`) kama Device Owner
+  │  • Samsung KME inairazimisha simu kudownload na kuji-install App yetu (`com.nexivo.payo`) kama Device Owner
   ▼
 [7. Double-Handshake Hardware Verification & Sync]
   │  • DPC App inaji-install kama Device Owner na kutuma IMEI + Public Key kwenda Backend:

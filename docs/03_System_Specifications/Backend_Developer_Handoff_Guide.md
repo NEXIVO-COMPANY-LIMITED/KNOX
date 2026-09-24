@@ -159,11 +159,11 @@ FOR EACH ROW EXECUTE FUNCTION block_audit_log_edits();
 
 ### Step 4: Samsung Knox Cloud KME Pre-Registration
 * Backend automatically calls Samsung Knox Cloud API (`POST /kme/v2/devices`) passing device IMEI, Serial, and Reseller ID.
-* Binds the IMEI to your DPC Organization Profile (`com.example.payo`).
+* Binds the IMEI to your DPC Organization Profile (`com.nexivo.payo`).
 
 ### Step 5: Device Out-Of-Box Setup & Forced DPC Download (OOBE)
 * Customer/Agent powers on the Samsung Galaxy phone.
-* Phone connects to Wi-Fi/Cellular, checks with Samsung KME Cloud, recognizes its registered IMEI, and **forces silent download and Device Owner installation of `com.example.payo`**.
+* Phone connects to Wi-Fi/Cellular, checks with Samsung KME Cloud, recognizes its registered IMEI, and **forces silent download and Device Owner installation of `com.nexivo.payo`**.
 
 ### Step 6: Double-Handshake Hardware IMEI Verification & Token Exchange
 * **Endpoint:** `POST /api/v1/enrollment`

@@ -36,7 +36,7 @@ knox-mdm/
 * Create repository pattern layer: `DeviceRepo`, `CommandRepo`, `AuditRepo`, `PolicyRepo`.
 
 ### Android (Kotlin DPC)
-* Set up Kotlin Android app package `com.example.payo`.
+* Set up Kotlin Android app package `com.nexivo.payo`.
 * Declare `MyDeviceAdminReceiver` in `AndroidManifest.xml` with `BIND_DEVICE_ADMIN` permission and `res/xml/device_admin_receiver.xml` policies.
 * Integrate with Samsung Knox Cloud Services API via Backend (`keys.json` + `clientId`).
 
@@ -197,7 +197,7 @@ Execute `KnoxHardening`:
 
 ### A.1 `MdmDeviceAdminReceiver.kt`
 ```kotlin
-package com.example.payo.receiver
+package com.nexivo.payo.receiver
 
 import android.app.admin.DeviceAdminReceiver
 import android.app.admin.DevicePolicyManager
@@ -205,8 +205,8 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import com.example.payo.enrollment.EnrollmentManager
-import com.example.payo.knox.policy.SecurityCoordinator
+import com.nexivo.payo.enrollment.EnrollmentManager
+import com.nexivo.payo.knox.policy.SecurityCoordinator
 
 class MdmDeviceAdminReceiver : DeviceAdminReceiver() {
 
@@ -234,7 +234,7 @@ class MdmDeviceAdminReceiver : DeviceAdminReceiver() {
 
 ### A.2 `DeviceKeyManager.kt`
 ```kotlin
-package com.example.payo.identity
+package com.nexivo.payo.identity
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -282,7 +282,7 @@ object DeviceKeyManager {
 
 ### A.3 `AospHardening.kt`
 ```kotlin
-package com.example.payo.knox.policy
+package com.nexivo.payo.knox.policy
 
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
@@ -316,7 +316,7 @@ object AospHardening {
 
 ### A.4 `KnoxHardening.kt`
 ```kotlin
-package com.example.payo.knox.policy
+package com.nexivo.payo.knox.policy
 
 import android.app.admin.DevicePolicyManager
 import android.content.Context
@@ -351,12 +351,12 @@ object KnoxHardening {
 
 ### A.5 `CommandExecutor.kt`
 ```kotlin
-package com.example.payo.commands
+package com.nexivo.payo.commands
 
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
-import com.example.payo.knox.policy.KnoxHardening
+import com.nexivo.payo.knox.policy.KnoxHardening
 
 data class PendingCommand(
     val id: String,

@@ -3,10 +3,10 @@
 # ====================================================================
 
 # 1. Keep Device Admin Receiver (Required by Android OS for Device Owner)
--keep class com.example.payo.receiver.MyDeviceAdminReceiver { *; }
--keep class com.example.payo.receiver.MdmDeviceAdminReceiver { *; }
--keep class com.example.payo.receiver.BootReceiver { *; }
--keep class com.example.payo.service.DeviceMonitorService { *; }
+-keep class com.nexivo.payo.receiver.MyDeviceAdminReceiver { *; }
+-keep class com.nexivo.payo.receiver.MdmDeviceAdminReceiver { *; }
+-keep class com.nexivo.payo.receiver.BootReceiver { *; }
+-keep class com.nexivo.payo.service.DeviceMonitorService { *; }
 
 # 2. Keep Samsung Knox SDK Classes & Interfaces
 -keep class com.samsung.android.knox.** { *; }

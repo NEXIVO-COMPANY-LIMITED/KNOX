@@ -2,7 +2,7 @@
 
 ## 1. System Architecture Overview
 The KNOX MDM system is built as a single-tenant, single-organization enterprise management platform. It consists of two primary software components:
-1. **Kotlin Device Policy Controller (`android-mdm`):** On-device agent operating as Device Owner (`com.example.payo`).
+1. **Kotlin Device Policy Controller (`android-mdm`):** On-device agent operating as Device Owner (`com.nexivo.payo`).
 2. **Kotlin / Spring Boot Backend (`mdm-backend`):** Stateless REST API server with PostgreSQL storage and Redis caching.
 
 ```
@@ -24,7 +24,7 @@ The KNOX MDM system is built as a single-tenant, single-organization enterprise 
                         + FCM Quiet Data Messages
                                      │
  ┌───────────────────────────────────▼────────────────────────────────────┐
- │           Android Device Owner App (`com.example.payo`)                │
+ │           Android Device Owner App (`com.nexivo.payo`)                │
  │  • On-Device Management Agent (`DeviceMonitorService`)                 │
  │  • Communicates with Samsung Knox Framework via `SamsungKnoxProvider`  │
  └───────────────────────────────────▲────────────────────────────────────┘
