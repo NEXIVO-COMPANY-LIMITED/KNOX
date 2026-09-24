@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Declares the DevicePolicyManager capabilities this DPC uses (§5, §6.1). Device Owner grants the
+     full capability set regardless of this file's contents once provisioning completes — this
+     declaration matters mainly for the (non-DO) Device Admin dev-testing path in plan §6.3. -->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <limit-password />
+        <watch-login />
+        <reset-password />
+        <force-lock />
+        <wipe-data />
+        <expire-password />
+        <encrypted-storage />
+        <disable-camera />
+        <disable-keyguard-features />
+    </uses-policies>
+</device-admin>

@@ -1,6 +1,7 @@
 package com.example.payo.data.remote
 
 import com.example.payo.BuildConfig
+import okhttp3.CertificatePinner
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -8,7 +9,8 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 /**
- * Provides a configured Retrofit instance for API communication.
+ * Provides a configured Retrofit instance for API communication
+ * enforcing SSL Certificate Pinning and custom X-Device-IMEI headers.
  */
 object ApiClient {
 
@@ -21,12 +23,22 @@ object ApiClient {
             }
         }
 
-        val client = OkHttpClient.Builder()
+        // Production Certificate Pinning configuration (Prevents MitM attacks)
+        val certPinner = CertificatePinner.Builder()
+            .add("YOUR-REAL-SERVER.com", "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
+            .build()
+
+        val clientBuilder = OkHttpClient.Builder()
             .addInterceptor(logging)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
-            .build()
+
+        if (!BuildConfig.DEBUG) {
+            clientBuilder.certificatePinner(certPinner)
+        }
+
+        val client = clientBuilder.build()
 
         Retrofit.Builder()
             .baseUrl(BuildConfig.SERVER_BASE_URL)

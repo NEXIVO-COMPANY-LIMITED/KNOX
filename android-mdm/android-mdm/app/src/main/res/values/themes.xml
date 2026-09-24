@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Minimal placeholder theme — this app has no real UI (per the plan's "no frontend/admin
+         UI" scope); a couple of activities may eventually be needed for provisioning-adjacent
+         system dialogs, so a theme is still declared. -->
+    <style name="Theme.MdmDpc" parent="Theme.MaterialComponents.DayNight.NoActionBar" />
+</resources>

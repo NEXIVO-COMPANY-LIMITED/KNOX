@@ -78,5 +78,13 @@
             </intent-filter>
         </service>
 
+        <!-- ===== KIOSK LOCK SCREEN ACTIVITY ===== -->
+        <activity
+            android:name=".ui.lock.LockActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true" />
+
     </application>
 </manifest>
