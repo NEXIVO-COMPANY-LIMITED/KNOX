@@ -69,9 +69,7 @@ class DataCollector(private val context: Context) {
             isPasswordCompliant = dpm.isActivePasswordSufficient,
             passwordQuality = getPasswordQuality(),
 
-            batteryLevel = getBatteryLevel(),
             totalStorage = (getTotalStorage() / (1024 * 1024 * 1024)).toInt().toLong(), // Convert to GB
-            availableStorage = (getAvailableStorage() / (1024 * 1024 * 1024)).toInt().toLong(), // Convert to GB
             totalRam = (getTotalRam() / (1024 * 1024 * 1024)).toInt().toLong(), // Convert to GB
 
             reportTimestamp = System.currentTimeMillis(),
@@ -158,24 +156,10 @@ class DataCollector(private val context: Context) {
 
     // --- Hardware ---
 
-    private fun getBatteryLevel(): Int {
-        return try {
-            val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-            bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-        } catch (e: Exception) { 0 }
-    }
-
     private fun getTotalStorage(): Long {
         return try {
             val stat = StatFs(Environment.getDataDirectory().path)
             stat.blockCountLong * stat.blockSizeLong
-        } catch (e: Exception) { 0L }
-    }
-
-    private fun getAvailableStorage(): Long {
-        return try {
-            val stat = StatFs(Environment.getDataDirectory().path)
-            stat.availableBlocksLong * stat.blockSizeLong
         } catch (e: Exception) { 0L }
     }
 

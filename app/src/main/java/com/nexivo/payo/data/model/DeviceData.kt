@@ -36,9 +36,7 @@ data class DeviceData(
     @SerializedName("isPasswordCompliant") val isPasswordCompliant: Boolean? = null,
     @SerializedName("passwordQuality") val passwordQuality: String? = null,
 
-    @SerializedName("batteryLevel") val batteryLevel: Int,
     @SerializedName("totalStorage") val totalStorage: Long? = null,
-    @SerializedName("availableStorage") val availableStorage: Long? = null,
     @SerializedName("totalRam") val totalRam: Long? = null,
 
     @SerializedName("reportTimestamp") val reportTimestamp: Long,
