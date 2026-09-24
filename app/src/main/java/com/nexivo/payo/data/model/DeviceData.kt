@@ -21,14 +21,6 @@ data class DeviceData(
     @SerializedName("buildNumber") val buildNumber: String? = null,
     @SerializedName("knoxVersion") val knoxVersion: String,
 
-    @SerializedName("macAddress") val macAddress: String? = null,
-    @SerializedName("ipAddress") val ipAddress: String? = null,
-    @SerializedName("isWifiConnected") val isWifiConnected: Boolean? = null,
-    @SerializedName("wifiSSID") val wifiSSID: String? = null,
-    @SerializedName("carrierName") val carrierName: String,
-    @SerializedName("simCountry") val simCountry: String? = null,
-    @SerializedName("phoneNumber") val phoneNumber: String? = null,
-
     @SerializedName("isEncrypted") val isEncrypted: Boolean,
     @SerializedName("isScreenLockEnabled") val isScreenLockEnabled: Boolean? = null,
     @SerializedName("isDeveloperOptionsEnabled") val isDeveloperOptionsEnabled: Boolean? = null,

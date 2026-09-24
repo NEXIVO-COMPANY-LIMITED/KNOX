@@ -54,14 +54,6 @@ class DataCollector(private val context: Context) {
             buildNumber = Build.DISPLAY,
             knoxVersion = knoxManager.getHardwareKnoxVersion(),
 
-            macAddress = getMacAddress(),
-            ipAddress = getIpAddress(),
-            isWifiConnected = isWifiConnected(),
-            wifiSSID = getWifiSSID(),
-            carrierName = getCarrierName(),
-            simCountry = getSimCountry(),
-            phoneNumber = getPhoneNumber(),
-
             isEncrypted = isEncrypted(),
             isScreenLockEnabled = isScreenLockEnabled(),
             isDeveloperOptionsEnabled = isDeveloperOptionsEnabled(),
@@ -125,58 +117,6 @@ class DataCollector(private val context: Context) {
 
     private fun getDeviceName(): String =
         Settings.Global.getString(context.contentResolver, "device_name") ?: Build.MODEL
-
-    // --- Connectivity ---
-
-    private fun getMacAddress(): String {
-        return try {
-            val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            wm.connectionInfo.macAddress ?: "UNKNOWN"
-        } catch (e: Exception) { "UNKNOWN" }
-    }
-
-    private fun getIpAddress(): String {
-        return try {
-            val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            val ip = wm.connectionInfo.ipAddress
-            "${ip and 0xFF}.${ip shr 8 and 0xFF}.${ip shr 16 and 0xFF}.${ip shr 24 and 0xFF}"
-        } catch (e: Exception) { "UNKNOWN" }
-    }
-
-    private fun isWifiConnected(): Boolean {
-        return try {
-            val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            wm.isWifiEnabled && wm.connectionInfo.networkId != -1
-        } catch (e: Exception) { false }
-    }
-
-    private fun getWifiSSID(): String {
-        return try {
-            val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            wm.connectionInfo.ssid?.replace("\"", "") ?: "UNKNOWN"
-        } catch (e: Exception) { "UNKNOWN" }
-    }
-
-    private fun getCarrierName(): String {
-        return try {
-            val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-            tm.networkOperatorName ?: "UNKNOWN"
-        } catch (e: Exception) { "UNKNOWN" }
-    }
-
-    private fun getSimCountry(): String {
-        return try {
-            val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-            tm.simCountryIso?.uppercase() ?: "UNKNOWN"
-        } catch (e: Exception) { "UNKNOWN" }
-    }
-
-    private fun getPhoneNumber(): String {
-        return try {
-            val tm = context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-            tm.line1Number ?: "UNKNOWN"
-        } catch (e: SecurityException) { "PERMISSION_DENIED" }
-    }
 
     // --- Security & Status ---
 
