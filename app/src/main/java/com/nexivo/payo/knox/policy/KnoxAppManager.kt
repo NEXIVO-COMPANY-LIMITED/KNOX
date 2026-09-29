@@ -15,7 +15,7 @@ class KnoxAppManager(private val context: Context) {
     }
 
     private val edm = EnterpriseDeviceManager.getInstance(context)
-    private val appPolicy: ApplicationPolicy? = edm.applicationPolicy
+    private val appPolicy: ApplicationPolicy? = edm?.applicationPolicy
 
     /**
      * Executes a silent background installation for the provided APK path.

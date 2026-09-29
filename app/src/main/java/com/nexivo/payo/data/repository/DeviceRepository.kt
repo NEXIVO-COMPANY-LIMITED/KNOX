@@ -4,6 +4,8 @@ import android.content.Context
 import android.util.Log
 import com.nexivo.payo.data.model.ApiResponse
 import com.nexivo.payo.data.model.DeviceData
+import com.nexivo.payo.data.model.HeartbeatResponse
+import com.nexivo.payo.data.model.InstallmentItem
 import com.nexivo.payo.data.model.RemoteCommand
 import com.nexivo.payo.data.remote.ApiClient
 import kotlinx.coroutines.Dispatchers
@@ -90,13 +92,13 @@ class DeviceRepository(private val context: Context? = null) {
     }
 
     /**
-     * Sends a heartbeat signal to indicate the device is online.
+     * Sends a heartbeat signal to indicate the device is online and returns structured HeartbeatResponse.
      */
-    suspend fun sendHeartbeat(imei: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun sendHeartbeat(imei: String): Result<HeartbeatResponse> = withContext(Dispatchers.IO) {
         try {
             val response = apiService.sendHeartbeat(authHeader, imei, imei)
-            if (response.isSuccessful) {
-                Result.success(Unit)
+            if (response.isSuccessful && response.body() != null) {
+                Result.success(response.body()!!)
             } else {
                 Result.failure(Exception("Heartbeat failed: ${response.code()}"))
             }
@@ -131,6 +133,22 @@ class DeviceRepository(private val context: Context? = null) {
                 Result.success(response.body()!!)
             } else {
                 Result.failure(Exception("Failed to ack command: ${response.code()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Fetches all payment installments and repayment schedule for the device.
+     */
+    suspend fun getDeviceInstallments(deviceId: String, imei: String): Result<List<InstallmentItem>> = withContext(Dispatchers.IO) {
+        try {
+            val response = apiService.getDeviceInstallments(authHeader, imei, deviceId)
+            if (response.isSuccessful) {
+                Result.success(response.body() ?: emptyList())
+            } else {
+                Result.failure(Exception("Failed to fetch installments: ${response.code()}"))
             }
         } catch (e: Exception) {
             Result.failure(e)

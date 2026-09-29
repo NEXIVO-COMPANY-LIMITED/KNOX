@@ -10,6 +10,7 @@ import com.nexivo.payo.audit.AuditManager
 import com.nexivo.payo.knox.core.KnoxManager
 import com.nexivo.payo.knox.policy.SecurityCoordinator
 import com.nexivo.payo.receiver.MyDeviceAdminReceiver
+import androidx.core.content.edit
 
 /**
  * Monitors and enforces anti-tamper security checks across the device.
@@ -90,10 +91,10 @@ class AntiTamperManager(private val context: Context) {
         }
 
         // Update recorded time
-        prefs.edit()
-            .putLong(KEY_LAST_REAL_TIME, currentTime)
-            .putLong(KEY_LAST_KNOWN_TIME, SystemClock.elapsedRealtime())
-            .apply()
+        prefs.edit {
+            putLong(KEY_LAST_REAL_TIME, currentTime)
+                .putLong(KEY_LAST_KNOWN_TIME, SystemClock.elapsedRealtime())
+        }
 
         return false
     }

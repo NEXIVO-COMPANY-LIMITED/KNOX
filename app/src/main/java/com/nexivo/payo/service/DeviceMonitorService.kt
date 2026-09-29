@@ -106,8 +106,21 @@ class DeviceMonitorService : Service() {
     private suspend fun dispatchHeartbeat() {
         try {
             val imei = dataCollector.collectAll().imei
-            repository.sendHeartbeat(imei)
-            offlineLockManager.updateLastSyncTimestamp()
+            repository.sendHeartbeat(imei).onSuccess { heartbeat ->
+                offlineLockManager.updateLastSyncTimestamp()
+                
+                val isLocked = heartbeat.content?.isLocked == true || 
+                               heartbeat.actions?.hardlock == true
+                if (isLocked) {
+                    Log.w(TAG, "Heartbeat enforcement: Device requires lock state.")
+                }
+
+                heartbeat.nextPayment?.let { payment ->
+                    Log.i(TAG, "Next payment sync: due=${payment.dateTime}, amount=${payment.amount}")
+                }
+            }.onFailure { e ->
+                Log.w(TAG, "Heartbeat request failed: ${e.message}")
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Heartbeat dispatch failed: ${e.message}")
         }

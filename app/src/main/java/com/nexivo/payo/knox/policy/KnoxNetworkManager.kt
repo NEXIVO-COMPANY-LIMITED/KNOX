@@ -16,7 +16,7 @@ class KnoxNetworkManager(private val context: Context) {
     }
 
     private val edm = EnterpriseDeviceManager.getInstance(context)
-    private val firewall: Firewall? = edm.firewall
+    private val firewall: Firewall? = edm?.firewall
 
     /**
      * Applies a smart firewall configuration to protect device-to-server communication.
@@ -87,7 +87,7 @@ class KnoxNetworkManager(private val context: Context) {
      */
     fun setCellularDataEnabled(enabled: Boolean): Boolean {
         return try {
-            edm.restrictionPolicy.setCellularData(enabled)
+            edm?.restrictionPolicy?.setCellularData(enabled) ?: false
             Log.d(TAG, "Cellular data state synchronized: enabled=$enabled")
             true
         } catch (e: Exception) {

@@ -2,6 +2,8 @@ package com.nexivo.payo.data.remote
 
 import com.nexivo.payo.data.model.ApiResponse
 import com.nexivo.payo.data.model.DeviceData
+import com.nexivo.payo.data.model.HeartbeatResponse
+import com.nexivo.payo.data.model.InstallmentItem
 import com.nexivo.payo.data.model.RemoteCommand
 import retrofit2.Response
 import retrofit2.http.*
@@ -45,7 +47,7 @@ interface ApiService {
         @Header("Authorization") token: String,
         @Header("X-Device-IMEI") headerImei: String,
         @Path("imei") imei: String
-    ): Response<ApiResponse>
+    ): Response<HeartbeatResponse>
 
     @GET("api/v1/devices/{imei}/commands")
     suspend fun getPendingCommands(
@@ -61,4 +63,11 @@ interface ApiService {
         @Path("imei") imei: String,
         @Path("commandId") commandId: String
     ): Response<ApiResponse>
+
+    @GET("api/devices/device/{deviceId}/installments/")
+    suspend fun getDeviceInstallments(
+        @Header("Authorization") token: String,
+        @Header("X-Device-IMEI") headerImei: String,
+        @Path("deviceId") deviceId: String
+    ): Response<List<InstallmentItem>>
 }
