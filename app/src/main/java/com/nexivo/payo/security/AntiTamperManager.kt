@@ -1,19 +1,16 @@
 package com.nexivo.payo.security
 
 import android.app.admin.DevicePolicyManager
-import android.content.ComponentName
 import android.content.Context
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
-import com.nexivo.payo.audit.AuditManager
-import com.nexivo.payo.knox.core.KnoxManager
-import com.nexivo.payo.knox.policy.SecurityCoordinator
-import com.nexivo.payo.receiver.MyDeviceAdminReceiver
 import androidx.core.content.edit
+import com.nexivo.payo.audit.AuditManager
 
 /**
- * Monitors and enforces anti-tamper security checks across the device.
+ * Monitors anti-tamper signals. Phase 9: audit + telemetry flags only — never UI-lock for pin/network.
+ * Does not invent root checks (Guard-only).
  */
 class AntiTamperManager(private val context: Context) {
 
@@ -22,46 +19,54 @@ class AntiTamperManager(private val context: Context) {
         private const val PREFS_NAME = "payo_anti_tamper_prefs"
         private const val KEY_LAST_KNOWN_TIME = "last_known_elapsed_time"
         private const val KEY_LAST_REAL_TIME = "last_known_real_time"
+        private const val KEY_FLAG_ADB = "flag_adb"
+        private const val KEY_FLAG_DEV = "flag_dev"
+        private const val KEY_FLAG_CLOCK = "flag_clock"
     }
 
     private val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-    private val admin = ComponentName(context, MyDeviceAdminReceiver::class.java)
     private val auditManager = AuditManager(context)
-    private val knoxManager = KnoxManager(context)
-    private val securityCoordinator = SecurityCoordinator(context)
 
-    /**
-     * Executes a full anti-tamper security verification pass.
-     */
     fun verifyIntegrity(): Boolean {
-        var isTampered = false
+        val adb = checkAdbTampering()
+        val dev = checkDeveloperOptions()
+        val clock = checkSystemClockRollback()
 
-        if (checkAdbTampering()) {
-            isTampered = true
-            auditManager.logEvent("ANTI_TAMPER", "ADB_ENABLED_DETECTED", "ADB active; re-enforcing block.")
+        if (adb) {
+            auditManager.logEvent("ANTI_TAMPER", "ADB_ENABLED_DETECTED", "ADB active.")
         }
-
-        if (checkDeveloperOptions()) {
-            isTampered = true
+        if (dev) {
             auditManager.logEvent("ANTI_TAMPER", "DEV_OPTIONS_DETECTED", "Developer Options active.")
         }
-
-        if (checkRootOrWarrantyBit()) {
-            isTampered = true
-            auditManager.logEvent("ANTI_TAMPER", "ROOT_KNOX_BIT_TRIPPED", "Device root or Knox warranty bit tripped!")
+        if (clock) {
+            auditManager.logEvent("ANTI_TAMPER", "CLOCK_ROLLBACK_DETECTED", "System time rolled back.")
         }
 
-        if (checkSystemClockRollback()) {
-            isTampered = true
-            auditManager.logEvent("ANTI_TAMPER", "CLOCK_ROLLBACK_DETECTED", "System time rolled back illegally.")
+        val flags = TamperFlags(adb = adb, developerOptions = dev, clockRollback = clock)
+        persistFlags(flags)
+
+        if (flags.any()) {
+            Log.w(TAG, "Tamper signals present (telemetry only; no local Guard lock).")
         }
 
-        if (isTampered) {
-            Log.w(TAG, "Tamper detected during integrity pass! Re-applying full security hardening...")
-            securityCoordinator.applyFullHardening()
-        }
+        return !flags.any()
+    }
 
-        return !isTampered
+    fun lastFlags(): TamperFlags {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return TamperFlags(
+            adb = prefs.getBoolean(KEY_FLAG_ADB, false),
+            developerOptions = prefs.getBoolean(KEY_FLAG_DEV, false),
+            clockRollback = prefs.getBoolean(KEY_FLAG_CLOCK, false)
+        )
+    }
+
+    private fun persistFlags(flags: TamperFlags) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
+            putBoolean(KEY_FLAG_ADB, flags.adb)
+            putBoolean(KEY_FLAG_DEV, flags.developerOptions)
+            putBoolean(KEY_FLAG_CLOCK, flags.clockRollback)
+        }
     }
 
     private fun checkAdbTampering(): Boolean {
@@ -70,32 +75,28 @@ class AntiTamperManager(private val context: Context) {
     }
 
     private fun checkDeveloperOptions(): Boolean {
-        return Settings.Global.getInt(context.contentResolver, Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, 0) != 0
+        return Settings.Global.getInt(
+            context.contentResolver,
+            Settings.Global.DEVELOPMENT_SETTINGS_ENABLED,
+            0
+        ) != 0
     }
 
-    private fun checkRootOrWarrantyBit(): Boolean {
-        return knoxManager.isDeviceRooted()
-    }
-
-    /**
-     * Detects system time rollback tampering (attempting to bypass offline lock expiration).
-     */
     private fun checkSystemClockRollback(): Boolean {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val lastRealTime = prefs.getLong(KEY_LAST_REAL_TIME, 0L)
         val currentTime = System.currentTimeMillis()
 
-        if (lastRealTime > 0L && currentTime < (lastRealTime - 60000L)) {
-            Log.e(TAG, "Clock rollback detected! Current: $currentTime, Last recorded: $lastRealTime")
-            return true
+        val rolledBack = lastRealTime > 0L && currentTime < (lastRealTime - 60000L)
+        if (rolledBack) {
+            Log.e(TAG, "Clock rollback detected.")
         }
 
-        // Update recorded time
         prefs.edit {
             putLong(KEY_LAST_REAL_TIME, currentTime)
-                .putLong(KEY_LAST_KNOWN_TIME, SystemClock.elapsedRealtime())
+            putLong(KEY_LAST_KNOWN_TIME, SystemClock.elapsedRealtime())
         }
 
-        return false
+        return rolledBack
     }
 }

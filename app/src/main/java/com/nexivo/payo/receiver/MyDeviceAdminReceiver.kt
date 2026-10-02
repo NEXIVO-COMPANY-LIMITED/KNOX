@@ -5,14 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.nexivo.payo.audit.AuditManager
-import com.nexivo.payo.enrollment.EnrollmentManager
-import com.nexivo.payo.knox.policy.SecurityCoordinator
-import com.nexivo.payo.security.AntiTamperManager
-import com.nexivo.payo.service.DeviceMonitorService
-import com.nexivo.payo.ui.main.MainActivity
+import com.nexivo.payo.enrollment.PostProvisioningSetup
 
 /**
- * Entry point for device admin events and provisioning handshakes.
+ * Device Admin / Device Owner entry for QR, KME, and ADB provisioning.
+ *
+ * Prefer [onProfileProvisioningComplete] for AFW extras; [onEnabled] covers ADB
+ * `dpm set-device-owner` (no PROFILE_PROVISIONING_COMPLETE on some paths).
  */
 class MyDeviceAdminReceiver : DeviceAdminReceiver() {
 
@@ -23,13 +22,12 @@ class MyDeviceAdminReceiver : DeviceAdminReceiver() {
     override fun onEnabled(context: Context, intent: Intent) {
         super.onEnabled(context, intent)
         Log.i(TAG, "Device Admin enabled.")
-        AuditManager(context).logEvent("SECURITY", "ADMIN_ENABLED", "Device Owner / Admin privileges granted.")
-        try {
-            SecurityCoordinator(context).applyFullHardening()
-            AntiTamperManager(context).verifyIntegrity()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed during onEnabled hardening: ${e.message}")
-        }
+        AuditManager(context).logEvent(
+            "SECURITY",
+            "ADMIN_ENABLED",
+            "Device Owner / Admin privileges granted."
+        )
+        PostProvisioningSetup.run(context, intent.extras, "onEnabled")
     }
 
     override fun onDisabled(context: Context, intent: Intent) {
@@ -40,29 +38,12 @@ class MyDeviceAdminReceiver : DeviceAdminReceiver() {
 
     override fun onProfileProvisioningComplete(context: Context, intent: Intent) {
         super.onProfileProvisioningComplete(context, intent)
-        Log.i(TAG, "Profile provisioning complete! Processing OOBE extras bundle...")
-        
-        val auditManager = AuditManager(context)
-        auditManager.logEvent("SECURITY", "PROVISIONING_COMPLETE", "Device Owner provisioning complete.")
-
-        try {
-            // Apply immediate baseline hardening
-            SecurityCoordinator(context).applyFullHardening()
-
-            // Process enrollment bundle extras
-            EnrollmentManager(context).processProvisioningExtras(intent.extras)
-
-            // Start 24/7 background security service
-            val serviceIntent = Intent(context, DeviceMonitorService::class.java)
-            context.startForegroundService(serviceIntent)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in onProfileProvisioningComplete: ${e.message}", e)
-        }
-
-        // Launch main activity
-        val launchIntent = Intent(context, MainActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        }
-        context.startActivity(launchIntent)
+        Log.i(TAG, "Profile provisioning complete — processing OOBE extras.")
+        AuditManager(context).logEvent(
+            "SECURITY",
+            "PROVISIONING_COMPLETE",
+            "Device Owner provisioning complete."
+        )
+        PostProvisioningSetup.run(context, intent.extras, "onProfileProvisioningComplete")
     }
 }

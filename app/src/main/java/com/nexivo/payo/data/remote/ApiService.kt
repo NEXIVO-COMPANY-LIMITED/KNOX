@@ -2,9 +2,16 @@ package com.nexivo.payo.data.remote
 
 import com.nexivo.payo.data.model.ApiResponse
 import com.nexivo.payo.data.model.DeviceData
+import com.nexivo.payo.data.model.EnrollmentRequest
+import com.nexivo.payo.data.model.EnrollmentResponse
 import com.nexivo.payo.data.model.HeartbeatResponse
 import com.nexivo.payo.data.model.InstallmentItem
+import com.nexivo.payo.data.model.DeviceReauthRequest
+import com.nexivo.payo.data.model.DeviceReauthResponse
+import com.nexivo.payo.data.model.OfflineUnlockReportRequest
 import com.nexivo.payo.data.model.RemoteCommand
+import com.nexivo.payo.data.model.SupportReactivationRequest
+import com.nexivo.payo.data.model.SupportReactivationResponse
 import retrofit2.Response
 import retrofit2.http.*
 
@@ -13,6 +20,23 @@ import retrofit2.http.*
  * Includes X-Device-IMEI header on all endpoints for rapid middleware indexing & anti-spoofing.
  */
 interface ApiService {
+
+    /**
+     * One-time enrollment token exchange. No device access token yet.
+     * TODO(server): Validate enrollment token, bind device, return access + offline unlock key.
+     */
+    @POST("api/v1/enrollment")
+    suspend fun exchangeEnrollment(
+        @Body body: EnrollmentRequest
+    ): Response<EnrollmentResponse>
+
+    /**
+     * Re-issue access token after consecutive 401s using device-key signature (not refresh token).
+     */
+    @POST("api/v1/devices/reauth")
+    suspend fun reauthenticate(
+        @Body body: DeviceReauthRequest
+    ): Response<DeviceReauthResponse>
 
     @POST("api/v1/devices/report")
     suspend fun sendDeviceReport(
@@ -70,4 +94,23 @@ interface ApiService {
         @Header("X-Device-IMEI") headerImei: String,
         @Path("deviceId") deviceId: String
     ): Response<List<InstallmentItem>>
+
+    /**
+     * Notify backend of a successful offline OTP so it can unlock Knox Guard after re-verification.
+     * TODO(server): Authenticate with device token; recompute OTP with per-device key; then Guard unlock.
+     */
+    @POST("api/v1/devices/{deviceId}/offline-unlock-report")
+    suspend fun reportOfflineUnlock(
+        @Header("Authorization") token: String,
+        @Path("deviceId") deviceId: String,
+        @Body body: OfflineUnlockReportRequest
+    ): Response<ApiResponse>
+
+    /**
+     * Support reactivation after clear-data (no bearer required — code is single-use, HW-bound).
+     */
+    @POST("api/v1/devices/reactivate")
+    suspend fun reactivateWithSupportCode(
+        @Body body: SupportReactivationRequest
+    ): Response<SupportReactivationResponse>
 }

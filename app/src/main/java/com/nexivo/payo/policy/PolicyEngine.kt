@@ -3,12 +3,12 @@ package com.nexivo.payo.policy
 import android.content.Context
 import android.util.Log
 import com.nexivo.payo.audit.AuditManager
-import com.nexivo.payo.knox.policy.AndroidEnterpriseManager
-import com.nexivo.payo.oem.OemProviderFactory
+import com.nexivo.payo.lock.DeviceLockController
+import com.nexivo.payo.security.SecurityCoordinator
 
 /**
- * Central Policy Engine responsible for applying baseline Android Enterprise policies
- * and delegating hardware OEM policies to OemCapabilityProvider.
+ * Owns [DeviceFinancingStateMachine]. [enforceFinancingState] is the sole path that
+ * touches [DeviceLockController] lock/unlock and lock-mode DPM apply.
  */
 class PolicyEngine(private val context: Context) {
 
@@ -16,54 +16,73 @@ class PolicyEngine(private val context: Context) {
         private const val TAG = "PolicyEngine"
     }
 
-    private val aeManager = AndroidEnterpriseManager(context)
-    private val oemProvider = OemProviderFactory.getProvider(context)
     private val auditManager = AuditManager(context)
-
-    /**
-     * Applies full baseline and OEM hardware security policies.
-     */
-    fun applyFullPolicySet(): Boolean {
-        Log.i(TAG, "Applying full enterprise policy set. OEM Provider: ${oemProvider.oemId}")
-        var success = true
-
-        try {
-            // Layer 1: Baseline Android Enterprise Policy Application
-            aeManager.applyEnterprisePolicies()
-            auditManager.logEvent("POLICY", "AE_APPLIED", "Baseline Android Enterprise policies applied.")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to apply AE policies: ${e.message}", e)
-            success = false
-        }
-
-        try {
-            // Layer 2: OEM Hardware Hardening Application (Knox)
-            if (oemProvider.isAvailable()) {
-                oemProvider.activateLicense()
-                oemProvider.applyHardwareHardening()
-                auditManager.logEvent("POLICY", "OEM_APPLIED", "OEM hardware hardening applied (${oemProvider.oemId}).")
-            } else {
-                Log.w(TAG, "OEM Provider ${oemProvider.oemId} is not available on this device.")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to apply OEM policies: ${e.message}", e)
-            success = false
-        }
-
-        return success
+    private val financingStore: DeviceFinancingStateStore by lazy {
+        EncryptedDeviceFinancingStateStore(context.applicationContext)
+    }
+    private val financingMachine: DeviceFinancingStateMachine by lazy {
+        DeviceFinancingStateMachine(
+            store = financingStore,
+            onEnter = ::enforceFinancingState
+        )
     }
 
-    /**
-     * Clears all enforced policies during device offboarding.
-     */
-    fun clearFullPolicySet() {
-        Log.w(TAG, "Clearing all enterprise and OEM policies...")
-        try {
-            aeManager.clearEnterprisePolicies()
-            oemProvider.clearHardwareRestrictions()
-            auditManager.logEvent("POLICY", "POLICIES_CLEARED", "All restrictions cleared for offboarding.")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to clear policies: ${e.message}", e)
+    fun financingStateMachine(): DeviceFinancingStateMachine = financingMachine
+
+    fun financingStateStore(): DeviceFinancingStateStore = financingStore
+
+    /** Re-applies persisted financing policy after process restart or boot. */
+    fun enforceCurrentFinancingState() {
+        enforceFinancingState(financingStore.getState(), "ENFORCE_CURRENT")
+    }
+
+    private fun enforceFinancingState(state: DeviceFinancingState, reason: String) {
+        val lock = DeviceLockController(context)
+        val security = SecurityCoordinator(context)
+        Log.i(TAG, "enforceFinancingState state=$state reason=$reason")
+        // System-held snapshot: state + lastKnownServerTime only (never tokens/keys).
+        runCatching {
+            val server = com.nexivo.payo.time.TrustedTimeAnchor.create(context)
+                .lastKnownServerTimeMs()
+                .takeIf { it > 0L }
+            SystemHeldFinancingSnapshot.create(context).write(
+                SystemHeldFinancingSnapshot.Snapshot(
+                    state = state,
+                    lastKnownServerTimeMs = server
+                )
+            )
         }
+        when (state) {
+            DeviceFinancingState.PARTIAL_LOCK -> {
+                lock.setLocked(state.name)
+                security.applyPartialLock()
+            }
+            DeviceFinancingState.LOCKED -> {
+                lock.setLocked(state.name)
+                security.applyLocked()
+            }
+            DeviceFinancingState.ACTIVE,
+            DeviceFinancingState.WARNING -> {
+                if (lock.isUiLocked()) lock.setUnlocked()
+                security.clearLockEnforcement()
+            }
+            DeviceFinancingState.RELEASED -> {
+                if (lock.isUiLocked()) lock.setUnlocked()
+                security.clearFinancingRestrictions()
+                // Offline unlock counter is server-authoritative (payment / key rotation);
+                // do not reset locally on RELEASED.
+            }
+        }
+    }
+
+    fun applyFullPolicySet(): Boolean {
+        Log.i(TAG, "applyFullPolicySet skipped (financing-state driven).")
+        auditManager.logEvent("POLICY", "SKIPPED", "Use financing state machine.")
+        return true
+    }
+
+    fun clearFullPolicySet() {
+        financingMachine.transition(DeviceFinancingState.RELEASED, "CLEAR_FULL_POLICY")
+        auditManager.logEvent("POLICY", "CLEAR", "Requested RELEASED via state machine.")
     }
 }

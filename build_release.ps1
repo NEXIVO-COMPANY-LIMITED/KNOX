@@ -1,30 +1,39 @@
-# Build Release APK - Optimized for PAYO
-# Sets 16GB memory and extended timeouts for stable builds
+# Build Release APK for Payo + write SHA-256 checksums.
+# Requires local.properties (or env) with SERVER_BASE_URL and CERT_PIN_* — see local.properties.example.
+# Does not assume high RAM; uses Gradle defaults / GRADLE_OPTS if already set.
+
+$ErrorActionPreference = "Stop"
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Building Release APK (Optimized)" -ForegroundColor Cyan
+Write-Host "Building Release APK" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
-# Clean build
-Write-Host "Cleaning build..." -ForegroundColor Yellow
-Remove-Item -Recurse -Force app\build -ErrorAction SilentlyContinue
+Write-Host "Running assembleRelease..." -ForegroundColor Yellow
+./gradlew :app:assembleRelease --no-daemon
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Build failed." -ForegroundColor Red
+    exit $LASTEXITCODE
+}
 
-# Stop any existing daemon to avoid conflicts
-Write-Host "Stopping any existing Gradle daemons..." -ForegroundColor Yellow
-./gradlew --stop
-
-# Set environment with 16GB memory and extended timeouts
-Write-Host "Setting JVM memory to 16GB..." -ForegroundColor Yellow
-$env:GRADLE_OPTS = "-Xmx16g -XX:MaxMetaspaceSize=4g -XX:+UseG1GC -Dorg.gradle.daemon.idletimeout=120000"
-
-# Build using the custom Gradle task we added to build.gradle.kts
-Write-Host "Starting build and checksum generation..." -ForegroundColor Yellow
-./gradlew :app:buildReleaseApkWithChecksums --max-workers=4 --parallel
-
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "`n✅ Build and Post-Processing Complete!" -ForegroundColor Green
-    Write-Host "Check 'app-release-checksums.txt' for details." -ForegroundColor Gray
-} else {
-    Write-Host "`n❌ Build failed!" -ForegroundColor Red
+$apkDir = "app\build\outputs\apk\release"
+$checksumFile = "app-release-checksums.txt"
+if (-not (Test-Path $apkDir)) {
+    Write-Host "APK output directory not found: $apkDir" -ForegroundColor Red
     exit 1
 }
+
+$lines = @()
+$lines += "Payo release checksums — $(Get-Date -Format o)"
+$lines += ""
+
+Get-ChildItem -Path $apkDir -Filter "*.apk" | ForEach-Object {
+    $hash = Get-FileHash -Algorithm SHA256 -Path $_.FullName
+    $line = "$($hash.Hash)  $($_.Name)"
+    $lines += $line
+    Write-Host $line -ForegroundColor Green
+}
+
+$lines | Set-Content -Path $checksumFile -Encoding UTF8
+Write-Host ""
+Write-Host "Checksums written to $checksumFile" -ForegroundColor Cyan
+Write-Host "Build complete." -ForegroundColor Green

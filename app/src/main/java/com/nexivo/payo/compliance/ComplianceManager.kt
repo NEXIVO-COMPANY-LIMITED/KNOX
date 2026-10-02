@@ -5,11 +5,11 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import com.nexivo.payo.audit.AuditManager
-import com.nexivo.payo.knox.core.KnoxManager
-import com.nexivo.payo.knox.policy.SecurityCoordinator
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Locale
+import com.nexivo.payo.security.SecurityCoordinator
+
+internal object ComplianceRemediationPolicy {
+    fun shouldLock(isDeviceOwner: Boolean): Boolean = isDeviceOwner
+}
 
 /**
  * Validates system integrity and triggers emergency remediation on violations.
@@ -18,34 +18,26 @@ class ComplianceManager(private val context: Context) {
 
     companion object {
         private const val TAG = "ComplianceManager"
-        private const val MIN_PATCH_DATE = "2023-01-01"
     }
 
     private val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
     private val coordinator = SecurityCoordinator(context)
     private val auditManager = AuditManager(context)
-    private val knoxManager = KnoxManager(context)
 
     /**
-     * Audits system security; returns false and locks device if non-compliant.
+     * Audits system security; returns false and requests lock if non-compliant.
      */
     fun checkCompliance(): Boolean {
         var isCompliant = true
         val violations = mutableListOf<String>()
 
-        // 1. Device Owner check
+        // Guard-only: Device Owner is informational; not required for cloud lock.
         if (!dpm.isDeviceOwnerApp(context.packageName)) {
-            isCompliant = false
-            violations.add("NOT_DEVICE_OWNER")
-            Log.e(TAG, "Compliance Failure: App is not Device Owner!")
+            Log.i(TAG, "App is not Device Owner (expected in Guard-only mode).")
         }
 
-        // 2. Root check
-        if (isDeviceRooted()) {
-            isCompliant = false
-            violations.add("DEVICE_ROOTED")
-            Log.e(TAG, "Compliance Failure: Device root detected!")
-        }
+        // TODO: Knox SDK root/warranty check removed — do not invent a local substitute.
+        // When backend exposes Guard/device integrity status, evaluate it here and fail closed on unknown.
 
         // 3. Storage Encryption check
         if (!isStorageEncrypted()) {
@@ -54,11 +46,15 @@ class ComplianceManager(private val context: Context) {
             Log.e(TAG, "Compliance Failure: Device storage is not encrypted!")
         }
 
-        // 4. Passcode Sufficiency check
-        if (!dpm.isActivePasswordSufficient) {
-            isCompliant = false
-            violations.add("PASSCODE_INSUFFICIENT")
-            Log.w(TAG, "Compliance Violation: Device passcode is insufficient.")
+        // 4. Passcode Sufficiency check (DPM may be inactive without Device Owner)
+        try {
+            if (!dpm.isActivePasswordSufficient) {
+                isCompliant = false
+                violations.add("PASSCODE_INSUFFICIENT")
+                Log.w(TAG, "Compliance Violation: Device passcode is insufficient.")
+            }
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Passcode sufficiency unavailable without Device Owner: ${e.message}")
         }
 
         // 5. Security Patch Level check
@@ -67,30 +63,20 @@ class ComplianceManager(private val context: Context) {
             Log.w(TAG, "Compliance Warning: Security patch is outdated.")
         }
 
-        // Log results to AuditManager
         if (isCompliant) {
             auditManager.logEvent("COMPLIANCE", "CHECK_PASSED", "System fully compliant.")
         } else {
             val violationSummary = violations.joinToString(", ")
             auditManager.logEvent("COMPLIANCE", "CHECK_FAILED", "Violations: $violationSummary")
-            Log.e(TAG, "Device non-compliant! Triggering remediation lockdown...")
-            coordinator.lockDevice()
+            if (ComplianceRemediationPolicy.shouldLock(dpm.isDeviceOwnerApp(context.packageName))) {
+                Log.e(TAG, "Device non-compliant! Requesting Device Owner remediation lockdown...")
+                coordinator.lockDevice()
+            } else {
+                Log.w(TAG, "Device non-compliant; telemetry/audit only because app is not Device Owner.")
+            }
         }
 
         return isCompliant
-    }
-
-    private fun isDeviceRooted(): Boolean {
-        if (Build.TAGS?.contains("test-keys") == true) return true
-        val paths = arrayOf(
-            "/system/app/Superuser.apk",
-            "/sbin/su",
-            "/system/bin/su",
-            "/system/xbin/su",
-            "/data/local/xbin/su",
-            "/data/local/bin/su"
-        )
-        return paths.any { File(it).exists() } || knoxManager.isDeviceRooted()
     }
 
     private fun isStorageEncrypted(): Boolean {
@@ -100,11 +86,6 @@ class ComplianceManager(private val context: Context) {
                 status == DevicePolicyManager.ENCRYPTION_STATUS_ACTIVE_PER_USER
     }
 
-    private fun isSecurityPatchUpToDate(): Boolean {
-        val patch = Build.VERSION.SECURITY_PATCH ?: return false
-        return try {
-            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-            sdf.parse(patch)?.after(sdf.parse(MIN_PATCH_DATE)) ?: false
-        } catch (_: Exception) { false }
-    }
+    private fun isSecurityPatchUpToDate(): Boolean =
+        SecurityPatchPolicy.isUpToDate(Build.VERSION.SECURITY_PATCH)
 }

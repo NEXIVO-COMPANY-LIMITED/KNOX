@@ -27,5 +27,8 @@ data class HeartbeatActions(
 data class NextPaymentInfo(
     @SerializedName("date_time") val dateTime: String?,
     @SerializedName("amount") val amount: String?,
-    @SerializedName("unlocking_password") val unlockingPassword: String?
+    /** Sensitive — never log or display this field. Prefer offline OTP / device token auth. */
+    @SerializedName("unlocking_password") val unlockingPassword: String? = null,
+    @SerializedName("payment_ussd") val paymentUssd: String? = null,
+    @SerializedName("payment_url") val paymentUrl: String? = null
 )

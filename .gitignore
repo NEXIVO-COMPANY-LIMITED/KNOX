@@ -31,6 +31,12 @@ gradle-app.setting
 
 # -------------------- Local Configuration --------------------
 local.properties
+# Keep the example template tracked:
+!local.properties.example
+
+# Lab mock-server venv (never ship in APK)
+tools/mock-server/.venv/
+tools/mock-server/__pycache__/
 
 # -------------------- IntelliJ IDEA / Android Studio --------------------
 *.iml
@@ -187,6 +193,10 @@ api-keys.properties
 *.env
 .env.*
 !.env.example
+# Samsung Knox Cloud / Guard credentials (backend only — never ship in the app)
+keys.json
+*.lic
+*.license
 
 # -------------------- Build Outputs --------------------
 *.so

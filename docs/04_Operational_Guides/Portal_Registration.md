@@ -1,5 +1,7 @@
 # Portal Registration & Account Setup Sequence (Phase 0)
 
+> **NOTICE (Payo / 2026):** Register for Knox **Guard / cloud** program access for the **backend**. Do not download Knox SDK binaries into this Android app repo.
+
 ## 1. Overview
 This guide provides the concrete account setup sequence required prior to initiating Phase 1 development. All portal registrations should be completed early due to manual review lead times (particularly for Samsung Knox Partner status).
 

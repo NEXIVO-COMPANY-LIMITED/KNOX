@@ -1,0 +1,26 @@
+﻿[
+    {
+        "Task":  "testProdDebugUnitTest",
+        "Exit":  0
+    },
+    {
+        "Task":  "testLabDebugUnitTest",
+        "Exit":  0
+    },
+    {
+        "Task":  "verifyLabAdbEscapePackaging",
+        "Exit":  0
+    },
+    {
+        "Task":  "assembleLabDebug",
+        "Exit":  0
+    },
+    {
+        "Task":  "assembleProdRelease",
+        "Exit":  1
+    },
+    {
+        "Task":  "lint",
+        "Exit":  1
+    }
+]

@@ -1,15 +1,14 @@
 package com.nexivo.payo.service
 
 import android.util.Log
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
-import com.nexivo.payo.sync.CommandSyncWorker
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import com.nexivo.payo.financing.OfflineLockManager
+import com.nexivo.payo.sync.CommandSyncScheduler
 
 /**
- * Listens for FCM push notifications from the management console 
- * to trigger immediate command polling and sync.
+ * FCM push triggers immediate command polling via WorkManager.
+ * If FCM is unavailable (no google-services.json), [CommandSyncScheduler] periodic work still runs.
  */
 class PayoFirebaseMessagingService : FirebaseMessagingService() {
 
@@ -19,16 +18,17 @@ class PayoFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
-        Log.i(TAG, "FCM notification received from: ${remoteMessage.from}")
-
-        // Trigger immediate command sync via WorkManager
-        val syncRequest = OneTimeWorkRequestBuilder<CommandSyncWorker>().build()
-        WorkManager.getInstance(applicationContext).enqueue(syncRequest)
+        // Prefer high-priority data messages so Doze still delivers wakeups.
+        val priority = remoteMessage.priority
+        Log.i(TAG, "FCM received priority=$priority; due-check + command sync.")
+        OfflineLockManager(applicationContext).verifyOperationalStatus()
+        CommandSyncScheduler.enqueueNow(applicationContext)
     }
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        Log.i(TAG, "New FCM Registration Token generated: $token")
-        // Token will be transmitted during the next device heartbeat/report cycle
+        // Never log the FCM registration token.
+        Log.i(TAG, "New FCM registration token received (not logged).")
+        // Token will be transmitted during the next device heartbeat/report cycle.
     }
 }

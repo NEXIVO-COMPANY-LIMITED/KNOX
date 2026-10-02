@@ -1,0 +1,50 @@
+<!--
+  NATIVE_REVIEW_REQUIRED: Swahili (sw) UI strings below need review by a native speaker
+  before production. Machine-assisted translations — do not treat as final.
+-->
+<resources>
+    <string name="app_name">Payo</string>
+    <string name="main_dashboard_title">Hali ya Payo</string>
+    <string name="lock_footer_brand">Payo Secure</string>
+    <string name="lock_footer_subtitle">Simu hii inalindwa na kifungo cha fedha cha Payo.</string>
+    <string name="lock_title">Simu imefungwa</string>
+    <string name="lock_reason_waiting">Tunasubiri maelezo ya malipo kutoka seva…</string>
+    <string name="lock_reason_payment">Malipo yako ya %1$s yalipaswa tarehe %2$s. Lipia ili uendelee kutumia simu.</string>
+    <string name="lock_reason_payment_amount_only">Malipo yako ya %1$s yanastahili. Lipia ili uendelee kutumia simu.</string>
+    <string name="lock_pay_ussd">Lipa sasa kwa USSD</string>
+    <string name="lock_emergency_otp">Weka OTP ya dharura</string>
+    <string name="status_not_enrolled">Haijasajiliwa</string>
+    <string name="status_syncing">Inasawazisha…</string>
+    <string name="status_locked">Imefungwa</string>
+    <string name="status_ok">Imelindwa</string>
+    <string name="enrollment_incomplete_no_key">Usajili haujakamilika: ufunguo wa kufungua nje ya mtandao haupo</string>
+    <string name="otp_no_key">Ufunguaji wa dharura bado haupatikani.</string>
+    <string name="otp_lockout">Jaribio nyingi. Jaribu tena baada ya dakika %1$d.</string>
+    <string name="otp_invalid">Msimbo si sahihi. Jaribu tena.</string>
+    <string name="otp_success">Simu imefunguliwa.</string>
+    <string name="pay_unavailable">Maelezo ya malipo hayapo kwa sasa.</string>
+    <string name="hardware_imei_available">Vifaa: IMEI inapatikana</string>
+    <string name="hardware_imei_unavailable">Vifaa: IMEI haipatikani (tunatumia kitambulisho cha kifaa)</string>
+    <string name="device_owner_true">Device Owner: ndiyo</string>
+    <string name="device_owner_false">Device Owner: hapana</string>
+    <string name="financing_state">Hali ya fedha: %1$s</string>
+    <string name="lab_clear_device_owner">Lab: ondoa Device Owner</string>
+    <string name="lab_clear_device_owner_title">Ondoa Device Owner?</string>
+    <string name="lab_clear_device_owner_message">Inaondoa Device Owner na vizuizi vya fedha kwenye simu hii ya lab. Haiwezi kutenduliwa hadi uwezeshe tena. Toleo la uzalishaji halionyeshi hii.</string>
+    <string name="lab_clear_device_owner_confirm">Ondoa Device Owner</string>
+    <string name="lab_clear_device_owner_success">Device Owner imeondolewa. Programu si managed.</string>
+    <string name="lab_clear_device_owner_failed">Imeshindwa kuondoa Device Owner: %1$s</string>
+    <string name="lab_clear_device_owner_disabled">Uondoaji wa lab umezimwa katika toleo hili.</string>
+    <string name="autostart_guidance_title">Ruhusu Payo iendelee kufanya kazi</string>
+    <string name="autostart_guidance_message">Simu yako inaweza kusimamisha programu za chinichini baada ya kuwashwa upya. Fungua mipangilio ya programu na uruhusu autostart au shughuli za chinichini zisizozuiwa ili kupata masasisho ya malipo kwa uhakika.</string>
+    <string name="open_app_settings">Fungua mipangilio ya programu</string>
+    <string name="battery_optimization_title">Ruhusu ukaguzi wa chinichini?</string>
+    <string name="battery_optimization_message">Payo hukagua masasisho ya fedha mara kwa mara chinichini. Unaweza kukagua ruhusa ya kutoboreshwa kwa betri na kuchagua kama utaikubali.</string>
+    <string name="review_battery_settings">Kagua mpangilio</string>
+    <string name="connect_to_internet">Unganisha kwenye intaneti ili kurejesha huduma kamili.</string>
+    <string name="support_reactivation_title">Uanzishaji upya wa msaada</string>
+    <string name="support_reactivation_hint">Weka msimbo mfupi kutoka kwa msaada wa Payo</string>
+    <string name="support_reactivation_success">Kifaa kimeanzishwa upya. Maliza usajili unapokuwa mtandaoni.</string>
+    <string name="support_reactivation_failed">Msimbo wa msaada si sahihi au umeisha muda.</string>
+    <string name="support_reactivation_button">Weka msimbo wa msaada</string>
+</resources>
