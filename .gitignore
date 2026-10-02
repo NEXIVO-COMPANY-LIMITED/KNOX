@@ -149,6 +149,9 @@ logs/
 *.temp
 *~
 
+# -------------------- Superpowers --------------------
+.superpowers/
+
 # -------------------- Maven --------------------
 target/
 pom.xml.tag
