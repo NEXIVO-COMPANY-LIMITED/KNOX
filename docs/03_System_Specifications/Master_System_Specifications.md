@@ -2,38 +2,29 @@
 
 **Product:** Payo Device Owner (DPC) Companion for Phone Financing  
 **As of:** 2026-10-02  
-**Status:** Authoritative System Specifications, Database Schema, and Backend Handoff Guide  
+**Status:** Authoritative System Specifications, Database Schema, and Django Backend Architecture (`sponsa_backend`)  
 **Language:** English
 
 ---
 
 ## Table of Contents
 
-1. [Backend Developer Implementation & Handoff Guide](#1-backend-developer-implementation--handoff-guide)
+1. [Backend Implementation & Django Stack Overview (`sponsa_backend`)](#1-backend-implementation--django-stack-overview-sponsa_backend)
 2. [Backend REST API Reference & Operational Flows](#2-backend-rest-api-reference--operational-flows)
-3. [Database Schema & Data Architecture (PostgreSQL)](#3-database-schema--data-architecture-postgresql)
-4. [Device DPC Architecture Specifications (`android-mdm`)](#4-device-dpc-architecture-specifications-android-mdm)
+3. [Database Schema & Data Architecture (PostgreSQL / Django ORM)](#3-database-schema--data-architecture-postgresql--django-orm)
+4. [Device DPC Architecture Specifications (`com.nexivo.payo`)](#4-device-dpc-architecture-specifications-comnexivopayo)
 
 ---
 
-## 1. Backend Developer Implementation & Handoff Guide
+## 1. Backend Implementation & Django Stack Overview (`sponsa_backend`)
 
-**Document Target:** Backend Engineer  
-**System Role:** Payo backend — device APIs + Samsung Knox Guard cloud integration  
-**Target Tech Stack:** **TBD** (Typical companions: PostgreSQL, Redis, FCM, Samsung Knox Guard / Cloud APIs).
+**System Role:** Payo backend (`sponsa_backend` Django application) — device enrollment, Bearer token authentication, heartbeat ingestion, ECDSA P-256 signed command queue (`PayoMobileCommand`), offline unlock verification, and support reactivation.
 
-> **NOTICE:** Android client in this monorepo context is a **companion app**, not an on-device Knox SDK DPC. Guard lock/unlock runs on the backend. Never place `keys.json` in the Android project.
-
-### 1.1 Samsung Knox Cloud API Integration Setup
-You will receive two credentials from the Knox Admin/API Portal (`https://eu-api-portal.samsungknox.com`):
-1. **`keys.json`**: Contains `public_key` and `private_key` (RSA keypair). Store securely in server environment variables or a secrets manager (Vault). *Never expose this file to client apps.*
-2. **`clientId`**: Client Identifier string generated in the Knox API Portal.
-
-**Knox Token Acquisition Protocol (`x-knox-apitoken`):**
-1. Sign `clientId` using the RSA private key from `keys.json` as a JWT to produce `clientIdentifierJwt`.
-2. Call `POST https://eu-kcs-api.samsungknox.com/ams/v1/users/accesstoken` with public key and signed client ID to receive `accessToken`.
-3. Sign the returned `accessToken` with the RSA private key to generate `signedAccessToken`.
-4. Set HTTP Header `x-knox-apitoken: <signedAccessToken>` on all Knox Cloud Service API calls. Cache in Redis (30-minute validity).
+### 1.1 Core Backend Services
+- **Enrollment Service:** Handles `POST /api/v1/enrollment` with single-use tokens, short TTL, and hardware binding (`IMEI`, `SERIAL`, `ESID`, `UNAVAILABLE`), issuing opaque access tokens and offline unlock keys.
+- **Heartbeat Service:** Processes Bearer-authenticated `POST /api/v1/devices/{deviceKey}/heartbeat` and telemetry reports, returning financing state, `is_locked`, `hardlock`, `reminder`, and server epoch time.
+- **Command Crypto & Service:** Signs remote commands (`LOCK`, `UNLOCK`, `PARTIAL_LOCK`, `OFFBOARD`, `RELEASED`) using ECDSA P-256 over canonical newline-separated fields with `kid` rotation (`PayoMobileCommand`).
+- **Offline Unlock & Reactivation Service:** Recomputes HMAC-SHA256 OTPs (cap = 3) and manages single-use 8-hex support reactivation codes for state-lost recovery after `pm clear`.
 
 ---
 
@@ -42,101 +33,68 @@ You will receive two credentials from the Knox Admin/API Portal (`https://eu-api
 - **Protocol:** HTTPS (TLS 1.2+ minimum, TLS 1.3 preferred).
 - **Base Path:** `/api/v1`
 - **Content Type:** `application/json`
-- **Mandatory Header:** `X-Device-IMEI: <imei_string>` on all device-facing requests.
-- **Idempotency:** State-changing `POST`/`PUT` endpoints require an `Idempotency-Key` HTTP header.
+- **Mandatory Device Header:** `X-Device-IMEI` / device identifier where applicable.
+- **Authentication:** Bearer token (`Authorization: Bearer <accessToken>`) issued at enrollment for all device-facing operational endpoints.
 
-### 2.1 Agent & Onboarding Endpoints
-- `POST /api/v1/agent/device-preregister` — registers device IMEI, serial, store license, and generates loan number (`LN-2026-08912`).
-- `POST /api/v1/agent/loans/{loan_number}/kyc` — submits customer KYC (name, phone, NIDA, email, address, guarantor).
-- `POST /api/v1/payments/downpayment-webhook` — confirms down-payment via payment gateway HMAC signature.
-
-### 2.2 Device-Facing Endpoints
-- `POST /api/v1/enrollment` — double-handshake IMEI verification, binding hardware public key, and issuing access/refresh tokens.
-- `GET /api/v1/devices/{deviceKey}/commands` — pulls pending signed commands.
-- `POST /api/v1/devices/{deviceKey}/commands/{commandId}/ack` — acknowledges command execution results (`SUCCEEDED` / `FAILED`).
-- `POST /api/v1/devices/{imei}/heartbeat` — periodic liveness and health metric ingestion.
+### 2.1 Device-Facing Endpoints (`sponsa_backend`)
+- `POST /api/v1/enrollment` — Double-handshake hardware verification, binding public key, returning `deviceId`, `accessToken`, and `offlineUnlockKey`.
+- `POST /api/v1/devices/{deviceKey}/heartbeat` — Periodic liveness, telemetry ingestion, and state mapping.
+- `GET /api/v1/devices/{deviceKey}/commands` — Pulls pending ECDSA P-256 signed commands.
+- `POST /api/v1/devices/{deviceKey}/commands/{commandId}/ack` — Acknowledges command execution (`SUCCEEDED` / `FAILED`).
+- `POST /api/v1/devices/{id}/offline-unlock-report` — Reports offline OTP usage for counter synchronization.
+- `POST /api/v1/devices/reactivate` — Validates support reactivation codes for devices in `PARTIAL_LOCK` after `pm clear`.
 
 ---
 
-## 3. Database Schema & Data Architecture (PostgreSQL)
+## 3. Database Schema & Data Architecture (PostgreSQL / Django ORM)
 
-```sql
-CREATE TABLE stores (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    store_license_id VARCHAR(128) NOT NULL UNIQUE,
-    name VARCHAR(255) NOT NULL,
-    location VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+The backend (`sponsa_backend`) uses Django models mapped to PostgreSQL with support for multi-company/shop structuring, device credentials, command queues, and enrollment tokens.
 
-CREATE TABLE loans (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    loan_number VARCHAR(128) NOT NULL UNIQUE,
-    customer_name VARCHAR(255) NOT NULL,
-    phone_number VARCHAR(64) NOT NULL,
-    national_id_nida VARCHAR(128) NOT NULL,
-    email VARCHAR(128),
-    physical_address TEXT NOT NULL,
-    occupation VARCHAR(128),
-    guarantor_name VARCHAR(255),
-    guarantor_phone VARCHAR(64),
-    status VARCHAR(64) NOT NULL DEFAULT 'KYC_SUBMITTED',
-    down_payment_amount NUMERIC(12, 2) NOT NULL DEFAULT 0,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+```python
+# Core Django Models Summary (sponsa_backend)
 
-CREATE TABLE devices (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    store_id UUID REFERENCES stores(id),
-    loan_id UUID REFERENCES loans(id),
-    agent_id VARCHAR(128) NOT NULL,
-    oem_id VARCHAR(64) NOT NULL DEFAULT 'SAMSUNG',
-    serial_number VARCHAR(128) NOT NULL,
-    imei VARCHAR(256) NOT NULL UNIQUE,
-    ownership_state VARCHAR(64) NOT NULL DEFAULT 'DEVICE_OWNER',
-    status VARCHAR(64) NOT NULL DEFAULT 'PREREGISTERED',
-    last_seen_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+class Company(models.Model):
+    name = models.CharField(max_length=255)
+    code = models.SlugField(unique=True)
 
-CREATE TABLE device_credentials (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
-    credential_type VARCHAR(64) NOT NULL,
-    public_key_or_cert TEXT NOT NULL,
-    issued_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    revoked_at TIMESTAMP WITH TIME ZONE
-);
+class Shop(models.Model):
+    company = models.ForeignKey(Company, on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    shop_license_id = models.CharField(max_length=128, unique=True)
 
-CREATE TABLE commands (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    device_id UUID NOT NULL REFERENCES devices(id),
-    type VARCHAR(64) NOT NULL,
-    payload JSONB DEFAULT '{}'::jsonb,
-    status VARCHAR(64) NOT NULL DEFAULT 'PENDING',
-    created_by VARCHAR(128) NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    idempotency_key VARCHAR(128) NOT NULL,
-    CONSTRAINT uq_device_idempotency UNIQUE (device_id, idempotency_key)
-);
+class MobileEnrollmentToken(models.Model):
+    token = models.CharField(max_length=128, unique=True)
+    single_use = models.BooleanField(default=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+    binding_id = models.CharField(max_length=256, null=True, blank=True)
+    binding_type = models.CharField(max_length=32, null=True, blank=True)
 
-CREATE TABLE audit_logs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    actor_type VARCHAR(64) NOT NULL,
-    actor_id VARCHAR(128) NOT NULL,
-    action VARCHAR(128) NOT NULL,
-    target_type VARCHAR(64) NOT NULL,
-    target_id VARCHAR(128) NOT NULL,
-    payload JSONB DEFAULT '{}'::jsonb,
-    occurred_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+class MobileDeviceCredential(models.Model):
+    device_id = models.CharField(max_length=128, unique=True)
+    access_token_hash = models.CharField(max_length=256)
+    public_key_pem = models.TextField()
+    offline_unlock_key_b64 = models.TextField()
+    offline_unlock_count = models.IntegerField(default=0)
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+
+class PayoMobileCommand(models.Model):
+    device_id = models.CharField(max_length=128)
+    command_id = models.UUIDField(unique=True)
+    type = models.CharField(max_length=64) # 'LOCK', 'PARTIAL_LOCK', 'UNLOCK', 'RELEASED', 'OFFBOARD'
+    payload = models.JSONField(default=dict, blank=True)
+    sequence = models.BigIntegerField()
+    nonce = models.CharField(max_length=128)
+    kid = models.CharField(max_length=64)
+    signature = models.TextField()
+    status = models.CharField(max_length=32, default='PENDING') # 'PENDING', 'ACKED', 'FAILED'
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
 ```
 
 ---
 
-## 4. Device DPC Architecture Specifications (`android-mdm`)
+## 4. Device DPC Architecture Specifications (`com.nexivo.payo`)
 
 ### 4.1 Executive Summary
 The Device Policy Controller (DPC) is a native Kotlin application running on Android hardware elevated to **Device Owner** status during provisioning. It serves as the local enforcement agent responsible for security policies, application lifecycle, remote commands, and telemetry collection.
