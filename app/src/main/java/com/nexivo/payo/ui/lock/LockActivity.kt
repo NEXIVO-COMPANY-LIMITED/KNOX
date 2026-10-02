@@ -17,11 +17,14 @@ import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.nexivo.payo.R
+import com.nexivo.payo.data.model.PublicInstallmentPayRequest
+import com.nexivo.payo.data.model.PublicLoanLookupRequest
 import com.nexivo.payo.data.model.SupportReactivationRequest
 import com.nexivo.payo.data.remote.ApiClient
 import com.nexivo.payo.financing.OfflineLockManager
 import com.nexivo.payo.identity.DeviceIdentityManager
 import com.nexivo.payo.lock.DeviceLockController
+import com.nexivo.payo.lock.LockPaymentFlow
 import com.nexivo.payo.lock.LockScreenCopyPolicy
 import com.nexivo.payo.lock.PaymentUrlAllowlist
 import com.nexivo.payo.lock.PrefsLockScreenStateStore
@@ -33,6 +36,10 @@ import com.nexivo.payo.security.DeviceOwnerGate
 import com.nexivo.payo.security.DpmDevicePolicyBridge
 import com.nexivo.payo.telemetry.DataCollector
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
@@ -48,8 +55,12 @@ class LockActivity : AppCompatActivity() {
 
     private lateinit var tvLockReason: TextView
     private lateinit var tvLoanNumber: TextView
+    private lateinit var etPhoneNumber: EditText
     private lateinit var btnPayNow: LinearLayout
+    private lateinit var tvPaymentStatus: TextView
     private lateinit var btnKioskOfflineUnlock: Button
+
+    private var paymentPollJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -77,11 +88,12 @@ class LockActivity : AppCompatActivity() {
 
         tvLockReason = findViewById(R.id.tvLockReason)
         tvLoanNumber = findViewById(R.id.tvLoanNumber)
-        btnPayNow = findViewById(R.id.btnPayNowUssd)
+        etPhoneNumber = findViewById(R.id.etPhoneNumber)
+        btnPayNow = findViewById(R.id.btnPayNow)
+        tvPaymentStatus = findViewById(R.id.tvPaymentStatus)
         btnKioskOfflineUnlock = findViewById(R.id.btnKioskOfflineUnlock)
 
         bindLockCopy()
-        tvLoanNumber.text = getString(R.string.app_name)
         if (!offlineLockManager.hasProvisionedKey()) {
             btnKioskOfflineUnlock.setText(R.string.support_reactivation_button)
         }
@@ -118,6 +130,11 @@ class LockActivity : AppCompatActivity() {
         }
     }
 
+    override fun onDestroy() {
+        paymentPollJob?.cancel()
+        super.onDestroy()
+    }
+
     private fun shouldDismiss(intent: Intent?): Boolean {
         if (intent?.getBooleanExtra(DeviceLockController.EXTRA_DISMISS, false) == true) return true
         return !lockController.isUiLocked()
@@ -142,45 +159,173 @@ class LockActivity : AppCompatActivity() {
             waitingLine = getString(R.string.lock_reason_waiting)
         ).lines.joinToString("\n")
 
-        val hasAllowedPaymentAction =
-            PaymentUrlAllowlist.isValidUssd(
-                state.paymentUssd?.trim().orEmpty(),
-                ussdAllowedPrefixes()
-            ) ||
-                PaymentUrlAllowlist.isAllowedHttpsUrl(
-                    state.paymentUrl?.trim().orEmpty(),
-                    paymentHttpsHosts()
-                )
-        if (hasAllowedPaymentAction) {
-            btnPayNow.visibility = View.VISIBLE
-            btnPayNow.isEnabled = true
-            btnPayNow.alpha = 1f
+        val loan = state.loanNumber?.trim().orEmpty()
+        if (loan.isNotEmpty()) {
+            tvLoanNumber.visibility = View.VISIBLE
+            tvLoanNumber.text = getString(R.string.lock_loan_label, loan)
         } else {
-            btnPayNow.visibility = View.VISIBLE
-            btnPayNow.isEnabled = false
-            btnPayNow.alpha = 0.5f
+            tvLoanNumber.text = getString(R.string.app_name)
         }
+
+        val savedPhone = state.lastPhone?.trim().orEmpty()
+        if (savedPhone.isNotEmpty() && etPhoneNumber.text.isNullOrBlank()) {
+            etPhoneNumber.setText(savedPhone)
+        }
+
+        // Public pay always available online; USSD/HTTPS remain secondary fallbacks.
+        btnPayNow.visibility = View.VISIBLE
+        btnPayNow.isEnabled = paymentPollJob?.isActive != true
+        btnPayNow.alpha = if (btnPayNow.isEnabled) 1f else 0.5f
     }
 
     private fun launchPayment() {
+        val phone = LockPaymentFlow.normalizePhone(etPhoneNumber.text?.toString().orEmpty())
+        if (!LockPaymentFlow.isUsablePhone(phone)) {
+            Toast.makeText(this, R.string.lock_pay_phone_required, Toast.LENGTH_SHORT).show()
+            return
+        }
+        lockScreenState.saveLastPhone(phone)
+        paymentPollJob?.cancel()
+        paymentPollJob = lifecycleScope.launch {
+            setPayingUi(true, getString(R.string.lock_pay_initiating))
+            val outcome = withContext(Dispatchers.IO) { startAndPollPayment(phone) }
+            when (outcome) {
+                PayOutcome.Confirmed -> {
+                    setPayingUi(false, getString(R.string.lock_pay_confirmed))
+                    unlockAfterPaymentConfirmed()
+                }
+                PayOutcome.Failed -> {
+                    setPayingUi(false, getString(R.string.lock_pay_failed))
+                    tryLegacyUssdFallback()
+                }
+                PayOutcome.LookupFailed -> {
+                    setPayingUi(false, getString(R.string.lock_pay_lookup_failed))
+                }
+                PayOutcome.Timeout -> {
+                    setPayingUi(false, getString(R.string.lock_pay_timeout))
+                }
+                PayOutcome.NetworkError -> {
+                    setPayingUi(false, getString(R.string.lock_pay_network_error))
+                    tryLegacyUssdFallback()
+                }
+            }
+        }
+    }
+
+    private suspend fun startAndPollPayment(phone: String): PayOutcome {
+        val hint = lockScreenState.load()
+        var loanNumber = hint.loanNumber?.trim().orEmpty()
+        var amount = hint.amount?.trim().orEmpty()
+
+        if (loanNumber.isEmpty() || amount.isEmpty()) {
+            val lookup = runCatching {
+                ApiClient.service.lookupPublicLoans(PublicLoanLookupRequest(phoneNumber = phone))
+            }.getOrNull()
+            if (lookup == null || !lookup.isSuccessful) {
+                return if (lookup == null) PayOutcome.NetworkError else PayOutcome.LookupFailed
+            }
+            val body = lookup.body()
+            val loan = LockPaymentFlow.pickLoan(body?.loans.orEmpty(), hint.loanNumber)
+                ?: return PayOutcome.LookupFailed
+            if (loanNumber.isEmpty()) {
+                loanNumber = loan.loanNumber?.trim().orEmpty()
+            }
+            if (amount.isEmpty()) {
+                amount = LockPaymentFlow.resolveAmount(null, loan).orEmpty()
+            }
+            if (loanNumber.isNotEmpty()) {
+                lockScreenState.savePaymentHint(
+                    amount = amount.ifBlank { hint.amount },
+                    dueDate = hint.dueDate,
+                    ussd = hint.paymentUssd,
+                    url = hint.paymentUrl,
+                    loanNumber = loanNumber
+                )
+            }
+        }
+
+        if (loanNumber.isEmpty() || amount.isEmpty()) {
+            return PayOutcome.LookupFailed
+        }
+
+        val initResp = runCatching {
+            ApiClient.service.initiatePublicInstallmentPayment(
+                PublicInstallmentPayRequest(
+                    loanNumber = loanNumber,
+                    phoneNumber = phone,
+                    amount = LockPaymentFlow.formatAmountForApi(amount),
+                    paymentMethod = LockPaymentFlow.PAYMENT_METHOD_MOBILE_MONEY
+                )
+            )
+        }.getOrNull() ?: return PayOutcome.NetworkError
+
+        val initBody = initResp.body()
+        if (!initResp.isSuccessful || initBody?.success != true) {
+            Log.w(TAG, "pay init failed http=${initResp.code()} err=${initBody?.error}")
+            return PayOutcome.Failed
+        }
+        val reference = initBody.paymentReference?.trim().orEmpty()
+        if (reference.isEmpty()) return PayOutcome.Failed
+
+        withContext(Dispatchers.Main) {
+            setPayingUi(true, getString(R.string.lock_pay_confirm_on_phone))
+        }
+
+        repeat(POLL_ATTEMPTS) { index ->
+            if (!currentCoroutineContext().isActive) return PayOutcome.Timeout
+            delay(POLL_INTERVAL_MS)
+            withContext(Dispatchers.Main) {
+                setPayingUi(true, getString(R.string.lock_pay_checking))
+            }
+            val statusResp = runCatching {
+                ApiClient.service.getPublicPaymentStatus(reference)
+            }.getOrNull()
+            val status = statusResp?.body()?.status
+            Log.i(TAG, "pay poll #$index ref=$reference status=$status")
+            when {
+                LockPaymentFlow.isPaymentConfirmed(status) -> return PayOutcome.Confirmed
+                LockPaymentFlow.isPaymentFailed(status) -> return PayOutcome.Failed
+            }
+        }
+        return PayOutcome.Timeout
+    }
+
+    private fun unlockAfterPaymentConfirmed() {
+        PolicyEngine(this).financingStateMachine()
+            .transition(DeviceFinancingState.ACTIVE, "PAYMENT_CONFIRMED")
+        Toast.makeText(this, R.string.lock_pay_confirmed, Toast.LENGTH_LONG).show()
+        finish()
+    }
+
+    /** Secondary path when API path fails but heartbeat left a dialable USSD / allowlisted HTTPS URL. */
+    private fun tryLegacyUssdFallback() {
         val state = lockScreenState.load()
         val ussd = state.paymentUssd?.trim().orEmpty()
         val url = state.paymentUrl?.trim().orEmpty()
-        val allowedHosts = paymentHttpsHosts()
         try {
             when {
                 PaymentUrlAllowlist.isValidUssd(ussd, ussdAllowedPrefixes()) -> {
-                    // ACTION_DIAL only — never ACTION_CALL. Encode # as %23.
                     val uri = Uri.parse(PaymentUrlAllowlist.telUri(ussd))
                     startActivity(Intent(Intent.ACTION_DIAL, uri))
                 }
-                PaymentUrlAllowlist.isAllowedHttpsUrl(url, allowedHosts) -> {
+                PaymentUrlAllowlist.isAllowedHttpsUrl(url, paymentHttpsHosts()) -> {
                     startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                 }
-                else -> Toast.makeText(this, R.string.pay_unavailable, Toast.LENGTH_SHORT).show()
             }
         } catch (_: Exception) {
-            Toast.makeText(this, R.string.pay_unavailable, Toast.LENGTH_SHORT).show()
+            // Ignore — status TextView already shows the primary error.
+        }
+    }
+
+    private fun setPayingUi(paying: Boolean, statusLine: String?) {
+        btnPayNow.isEnabled = !paying
+        btnPayNow.alpha = if (paying) 0.5f else 1f
+        etPhoneNumber.isEnabled = !paying
+        if (statusLine.isNullOrBlank()) {
+            tvPaymentStatus.visibility = View.GONE
+        } else {
+            tvPaymentStatus.visibility = View.VISIBLE
+            tvPaymentStatus.text = statusLine
         }
     }
 
@@ -314,7 +459,17 @@ class LockActivity : AppCompatActivity() {
         }
     }
 
+    private enum class PayOutcome {
+        Confirmed,
+        Failed,
+        LookupFailed,
+        Timeout,
+        NetworkError
+    }
+
     private companion object {
         const val TAG = "LockActivity"
+        const val POLL_INTERVAL_MS = 3_000L
+        const val POLL_ATTEMPTS = 40 // ~2 minutes
     }
 }

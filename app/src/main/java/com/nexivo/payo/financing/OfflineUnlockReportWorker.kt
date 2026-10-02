@@ -9,13 +9,8 @@ import com.nexivo.payo.data.repository.DeviceRepository
 /**
  * Uploads a pending offline-unlock report when network returns.
  * The local DPC has already unlocked the device; this report synchronizes and audits that
- * decision with the backend.
- *
- * TODO(server): Backend must NOT trust this report blindly. Re-verify by recomputing the
- * HMAC OTP for (deviceId, windowEpoch) with the server-side per-device key, confirm the
- * submitted OTP matches and the window was unused server-side, authenticate with the
- * device access token, THEN call Samsung Knox Guard unlock. A forged "I unlocked"
- * message alone must never unlock Guard.
+ * decision with the backend. Server recomputes HMAC OTP (Bearer + per-device key),
+ * enforces single-use windows and the per-contract cap of 3.
  */
 class OfflineUnlockReportWorker(
     appContext: Context,

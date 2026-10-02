@@ -192,10 +192,17 @@ class DeviceRepository(
         }
     }
 
-    suspend fun sendHeartbeat(imei: String): Result<HeartbeatResponse> = withContext(Dispatchers.IO) {
+    suspend fun sendHeartbeat(
+        imei: String,
+        telemetry: DeviceData? = null
+    ): Result<HeartbeatResponse> = withContext(Dispatchers.IO) {
         try {
             val header = authHeader().getOrElse { return@withContext Result.failure(it) }
-            val response = apiService.sendHeartbeat(header, imei, imei)
+            val response = if (telemetry != null) {
+                apiService.sendHeartbeatWithTelemetry(header, imei, imei, telemetry)
+            } else {
+                apiService.sendHeartbeat(header, imei, imei)
+            }
             if (response.isSuccessful && response.body() != null) {
                 auth401Policy.onHttpStatus(200)
                 Result.success(response.body()!!)

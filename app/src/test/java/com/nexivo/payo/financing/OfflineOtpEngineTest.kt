@@ -47,6 +47,19 @@ class OfflineOtpEngineTest {
         assertTrue(otp.all { it.isDigit() })
     }
 
+    /**
+     * Frozen vectors shared with sponsa_backend `tests_offline_otp_vectors.py`
+     * (same key: ByteArray(32) { (it + 3).toByte() }).
+     */
+    @Test
+    fun generateOtp_knownCrossPlatformVectors() {
+        assertEquals("033539", engine.generateOtp(key, "device", 42L))
+        assertEquals("516458", engine.generateOtp(key, "device-a", 100L))
+        assertEquals("888380", engine.generateOtp(key, "device-b", 100L))
+        assertEquals("025677", engine.generateOtp(key, "device", 100L))
+        assertEquals("515872", engine.generateOtp(key, "device", 101L))
+    }
+
     @Test
     fun currentWindowEpoch_changesEveryThirtyMinutes() {
         assertEquals(0L, engine.currentWindowEpoch(0L))

@@ -5,9 +5,8 @@ import com.google.gson.annotations.SerializedName
 /**
  * Payload for offline unlock notification.
  *
- * TODO(server): Recompute HMAC OTP with the per-device key for (deviceId, windowEpoch),
- * verify otpUsed, enforce single-use server-side, validate device bearer token, then
- * call Knox Guard unlock. Never unlock Guard based only on this message's presence.
+ * Server recomputes HMAC OTP for (deviceId, windowEpoch) with the per-device key,
+ * enforces single-use windows + cap=3, and validates the device bearer token.
  */
 data class OfflineUnlockReportRequest(
     @SerializedName("deviceId") val deviceId: String,

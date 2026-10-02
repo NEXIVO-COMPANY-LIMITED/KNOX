@@ -583,13 +583,17 @@ tasks.register("verifyProdReleasePackaging") {
             nsFile.exists() -> nsFile.readText()
             else -> file("src/main/res/xml/network_security_config.xml").readText()
         }
-        val apk = file("build/outputs/apk/prod/release/app-prod-release.apk")
+        // AGP may emit app-prod-release.apk (signed) or *-unsigned.apk when using
+        // ALLOW_DEBUG_SIGNED_RELEASE / debug signing for local packaging gates.
+        val apkDir = file("build/outputs/apk/prod/release")
+        val apkExists = apkDir.exists() && apkDir.listFiles()
+            ?.any { it.isFile && it.name.startsWith("app-prod-release") && it.name.endsWith(".apk") } == true
         val failures = prodReleasePackagingFailures(
             manifestText = manifest.readText(),
             buildConfigText = buildConfigFile.readText(),
             networkSecurityText = nsText,
             scanFileTexts = collectProdReleaseScanTexts(),
-            apkExists = apk.exists()
+            apkExists = apkExists
         )
         check(failures.isEmpty()) {
             "verifyProdReleasePackaging FAILED:\n" + failures.joinToString("\n") { " - $it" }

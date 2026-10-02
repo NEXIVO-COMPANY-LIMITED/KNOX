@@ -4,7 +4,8 @@ import com.google.gson.annotations.SerializedName
 
 /**
  * Enrollment exchange request. Backend validates [enrollmentToken] and returns device credentials.
- * TODO(server): Implement POST /api/v1/enrollment; never accept a forged success without crypto proof.
+ * Server: `POST /api/v1/enrollment` (sponsa_backend EnrollmentExchangeView).
+ * Trust comes from single-use HW-bound token + TLS; command keys are never taken from this response.
  */
 data class EnrollmentRequest(
     @SerializedName("enrollmentToken") val enrollmentToken: String,

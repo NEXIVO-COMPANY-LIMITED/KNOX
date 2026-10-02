@@ -9,6 +9,11 @@ import com.nexivo.payo.data.model.InstallmentItem
 import com.nexivo.payo.data.model.DeviceReauthRequest
 import com.nexivo.payo.data.model.DeviceReauthResponse
 import com.nexivo.payo.data.model.OfflineUnlockReportRequest
+import com.nexivo.payo.data.model.PublicInstallmentPayRequest
+import com.nexivo.payo.data.model.PublicInstallmentPayResponse
+import com.nexivo.payo.data.model.PublicLoanLookupRequest
+import com.nexivo.payo.data.model.PublicLoanLookupResponse
+import com.nexivo.payo.data.model.PublicPaymentStatusResponse
 import com.nexivo.payo.data.model.RemoteCommand
 import com.nexivo.payo.data.model.SupportReactivationRequest
 import com.nexivo.payo.data.model.SupportReactivationResponse
@@ -23,7 +28,7 @@ interface ApiService {
 
     /**
      * One-time enrollment token exchange. No device access token yet.
-     * TODO(server): Validate enrollment token, bind device, return access + offline unlock key.
+     * Server validates token + binding, returns accessToken + offlineUnlockKey.
      */
     @POST("api/v1/enrollment")
     suspend fun exchangeEnrollment(
@@ -73,6 +78,15 @@ interface ApiService {
         @Path("imei") imei: String
     ): Response<HeartbeatResponse>
 
+    /** Heartbeat with telemetry payload for server ingest. */
+    @POST("api/v1/devices/{imei}/heartbeat")
+    suspend fun sendHeartbeatWithTelemetry(
+        @Header("Authorization") token: String,
+        @Header("X-Device-IMEI") headerImei: String,
+        @Path("imei") imei: String,
+        @Body deviceData: DeviceData
+    ): Response<HeartbeatResponse>
+
     @GET("api/v1/devices/{imei}/commands")
     suspend fun getPendingCommands(
         @Header("Authorization") token: String,
@@ -96,8 +110,8 @@ interface ApiService {
     ): Response<List<InstallmentItem>>
 
     /**
-     * Notify backend of a successful offline OTP so it can unlock Knox Guard after re-verification.
-     * TODO(server): Authenticate with device token; recompute OTP with per-device key; then Guard unlock.
+     * Notify backend of a successful offline OTP. Server recomputes HMAC OTP (Bearer + per-device key),
+     * enforces single-use windows and the per-contract cap of 3.
      */
     @POST("api/v1/devices/{deviceId}/offline-unlock-report")
     suspend fun reportOfflineUnlock(
@@ -113,4 +127,24 @@ interface ApiService {
     suspend fun reactivateWithSupportCode(
         @Body body: SupportReactivationRequest
     ): Response<SupportReactivationResponse>
+
+    // --- Existing public installment payment APIs (AllowAny; no device bearer) ---
+
+    /** Lookup payable loans by customer phone. */
+    @POST("api/payments/public/loans/pay/lookup/")
+    suspend fun lookupPublicLoans(
+        @Body body: PublicLoanLookupRequest
+    ): Response<PublicLoanLookupResponse>
+
+    /** Initiate Selcom / mobile_money USSD push for an installment. */
+    @POST("api/payments/public/loans/pay/")
+    suspend fun initiatePublicInstallmentPayment(
+        @Body body: PublicInstallmentPayRequest
+    ): Response<PublicInstallmentPayResponse>
+
+    /** Poll payment intent status (`paid` | `pending` | `failed`). */
+    @GET("api/payments/public/loans/pay/status/")
+    suspend fun getPublicPaymentStatus(
+        @Query("reference") reference: String
+    ): Response<PublicPaymentStatusResponse>
 }

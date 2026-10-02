@@ -73,6 +73,22 @@ class HeartbeatLockMapperTest {
     }
 
     @Test
+    fun reminderWithoutLock_mapsToWarning() {
+        val decision = HeartbeatLockMapper.map(
+            currentState = DeviceFinancingState.ACTIVE,
+            graceActive = false,
+            ignoreStaleHeartbeatLock = false,
+            isLocked = false,
+            hardlock = false,
+            reminder = true,
+            loanComplete = false
+        )
+
+        assertEquals(DeviceFinancingState.WARNING, decision.desiredState)
+        assertFalse(decision.enforcePersistedLock)
+    }
+
+    @Test
     fun repeatedPersistedLock_requestsEnforcement() {
         val decision = HeartbeatLockMapper.map(
             currentState = DeviceFinancingState.LOCKED,

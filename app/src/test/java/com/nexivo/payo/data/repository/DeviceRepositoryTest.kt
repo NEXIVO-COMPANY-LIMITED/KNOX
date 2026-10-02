@@ -273,6 +273,13 @@ class DeviceRepositoryTest {
             imei: String
         ): Response<HeartbeatResponse> = heartbeatResponse
 
+        override suspend fun sendHeartbeatWithTelemetry(
+            token: String,
+            headerImei: String,
+            imei: String,
+            deviceData: com.nexivo.payo.data.model.DeviceData
+        ): Response<HeartbeatResponse> = heartbeatResponse
+
         override suspend fun getPendingCommands(
             token: String,
             headerImei: String,
@@ -301,6 +308,18 @@ class DeviceRepositoryTest {
         override suspend fun reactivateWithSupportCode(
             body: com.nexivo.payo.data.model.SupportReactivationRequest
         ): Response<com.nexivo.payo.data.model.SupportReactivationResponse> = unsupported()
+
+        override suspend fun lookupPublicLoans(
+            body: com.nexivo.payo.data.model.PublicLoanLookupRequest
+        ): Response<com.nexivo.payo.data.model.PublicLoanLookupResponse> = unsupported()
+
+        override suspend fun initiatePublicInstallmentPayment(
+            body: com.nexivo.payo.data.model.PublicInstallmentPayRequest
+        ): Response<com.nexivo.payo.data.model.PublicInstallmentPayResponse> = unsupported()
+
+        override suspend fun getPublicPaymentStatus(
+            reference: String
+        ): Response<com.nexivo.payo.data.model.PublicPaymentStatusResponse> = unsupported()
 
         private fun <T> unsupported(): Response<T> {
             throw UnsupportedOperationException("not used in this test")

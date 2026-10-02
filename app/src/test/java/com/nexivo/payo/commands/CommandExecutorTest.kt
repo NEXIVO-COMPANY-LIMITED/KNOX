@@ -51,6 +51,14 @@ class CommandExecutorTest {
     }
 
     @Test
+    fun partialLock_transitionsToPartialLock() {
+        val result = exec("PARTIAL_LOCK")
+        assertTrue(result.isSuccess)
+        assertTrue(result.isTerminal)
+        assertEquals(DeviceFinancingState.PARTIAL_LOCK, store.getState())
+    }
+
+    @Test
     fun kioskOn_transitionsToLocked() {
         assertTrue(exec("KIOSK_ON").isSuccess)
         assertEquals(DeviceFinancingState.LOCKED, store.getState())

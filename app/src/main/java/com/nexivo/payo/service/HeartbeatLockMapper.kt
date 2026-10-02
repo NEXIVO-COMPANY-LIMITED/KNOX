@@ -18,7 +18,8 @@ object HeartbeatLockMapper {
         ignoreStaleHeartbeatLock: Boolean,
         isLocked: Boolean,
         hardlock: Boolean,
-        loanComplete: Boolean
+        loanComplete: Boolean,
+        reminder: Boolean = false
     ): HeartbeatLockDecision {
         if (loanComplete) {
             return HeartbeatLockDecision(
@@ -29,7 +30,7 @@ object HeartbeatLockMapper {
             )
         }
 
-        if (!isLocked && !hardlock) {
+        if (!isLocked && !hardlock && !reminder) {
             return HeartbeatLockDecision(
                 desiredState = DeviceFinancingState.ACTIVE,
                 enforcePersistedLock = false,
@@ -48,10 +49,11 @@ object HeartbeatLockMapper {
             )
         }
 
-        val desiredState = if (hardlock) {
-            DeviceFinancingState.LOCKED
-        } else {
-            DeviceFinancingState.PARTIAL_LOCK
+        val desiredState = when {
+            hardlock -> DeviceFinancingState.LOCKED
+            isLocked -> DeviceFinancingState.PARTIAL_LOCK
+            reminder -> DeviceFinancingState.WARNING
+            else -> DeviceFinancingState.ACTIVE
         }
         return HeartbeatLockDecision(
             desiredState = desiredState,

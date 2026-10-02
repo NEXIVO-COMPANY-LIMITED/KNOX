@@ -81,6 +81,7 @@ object CommandExecutor {
         return try {
             when (command.type) {
                 "LOCK", "KIOSK_ON" -> transitionResult(command, stateMachine, DeviceFinancingState.LOCKED)
+                "PARTIAL_LOCK" -> transitionResult(command, stateMachine, DeviceFinancingState.PARTIAL_LOCK)
                 "OFFBOARD", "RELEASED" -> {
                     // SignedDeviceOwnerRelease persists RELEASED + durable ack before clear DO.
                     val release = onLoanCompleteRelease()

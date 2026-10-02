@@ -11,7 +11,9 @@ data class HeartbeatResponse(
     @SerializedName("content") val content: HeartbeatContent?,
     @SerializedName("actions") val actions: HeartbeatActions?,
     @SerializedName("next_payment") val nextPayment: NextPaymentInfo?,
-    @SerializedName("server_time") val serverTime: String?
+    @SerializedName("server_time") val serverTime: String?,
+    /** Authoritative offline unlock counter from server (optional). */
+    @SerializedName("offlineUnlockCount") val offlineUnlockCount: Int? = null
 )
 
 data class HeartbeatContent(
@@ -27,6 +29,8 @@ data class HeartbeatActions(
 data class NextPaymentInfo(
     @SerializedName("date_time") val dateTime: String?,
     @SerializedName("amount") val amount: String?,
+    /** Loan number for public installment pay init (not sensitive). */
+    @SerializedName("loan_number") val loanNumber: String? = null,
     /** Sensitive — never log or display this field. Prefer offline OTP / device token auth. */
     @SerializedName("unlocking_password") val unlockingPassword: String? = null,
     @SerializedName("payment_ussd") val paymentUssd: String? = null,

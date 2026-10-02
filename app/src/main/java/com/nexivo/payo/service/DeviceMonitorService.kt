@@ -199,8 +199,9 @@ class DeviceMonitorService : Service() {
 
     private suspend fun dispatchHeartbeat() {
         try {
-            val deviceKey = dataCollector.collectAll().networkDeviceKey()
-            repository.sendHeartbeat(deviceKey).onSuccess { heartbeat ->
+            val telemetry = dataCollector.collectAll("HEARTBEAT")
+            val deviceKey = telemetry.networkDeviceKey()
+            repository.sendHeartbeat(deviceKey, telemetry).onSuccess { heartbeat ->
                 offlineLockManager.updateLastSyncTimestamp()
                 HeartbeatDueDateParser.parseEpochMs(heartbeat.serverTime)?.let { serverEpoch ->
                     com.nexivo.payo.time.TrustedTimeAnchor.create(this).noteServerTime(serverEpoch)
@@ -215,15 +216,24 @@ class DeviceMonitorService : Service() {
                         amount = payment.amount,
                         dueDate = payment.dateTime,
                         ussd = payment.paymentUssd,
-                        url = payment.paymentUrl
+                        url = payment.paymentUrl,
+                        loanNumber = payment.loanNumber
                     )
                     // Never log unlockingPassword.
                     Log.i(TAG, "Next payment sync: due=${payment.dateTime}, amount=${payment.amount}")
                 }
 
+                heartbeat.offlineUnlockCount?.let { serverCount ->
+                    com.nexivo.payo.financing.OfflineUnlockCounterPolicy.applyServerProvidedCount(
+                        com.nexivo.payo.financing.EncryptedOfflineUnlockSecureState(this),
+                        serverCount
+                    )
+                }
+
                 applyLockStateFromHeartbeat(
                     isLocked = heartbeat.content?.isLocked == true,
                     hardlock = heartbeat.actions?.hardlock == true,
+                    reminder = heartbeat.actions?.reminder == true,
                     loanComplete = heartbeat.content?.loanComplete == true
                 )
             }.onFailure { e ->
@@ -243,6 +253,7 @@ class DeviceMonitorService : Service() {
     private fun applyLockStateFromHeartbeat(
         isLocked: Boolean,
         hardlock: Boolean,
+        reminder: Boolean,
         loanComplete: Boolean
     ) {
         val currentState = financingStateMachine.current()
@@ -252,6 +263,7 @@ class DeviceMonitorService : Service() {
             ignoreStaleHeartbeatLock = financingStateStore.shouldIgnoreStaleHeartbeatLock(),
             isLocked = isLocked,
             hardlock = hardlock,
+            reminder = reminder,
             loanComplete = loanComplete
         )
 
@@ -271,6 +283,11 @@ class DeviceMonitorService : Service() {
             policyEngine.enforceCurrentFinancingState()
         }
         PackageSuspendSweep.maybeResuspend(this, "HEARTBEAT")
+        // Loan-complete heartbeat is not enough to clear Device Owner — pull the signed
+        // RELEASED/OFFBOARD command (confirmDeviceId + releaseExpiresAtEpochMs) next.
+        if (loanComplete) {
+            CommandSyncScheduler.enqueueNow(this)
+        }
     }
 
     private suspend fun processRemoteCommands() {
