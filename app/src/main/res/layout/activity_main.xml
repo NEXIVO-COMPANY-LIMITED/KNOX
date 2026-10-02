@@ -9,7 +9,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="MDM Dashboard"
+        android:text="@string/main_dashboard_title"
         android:textSize="24sp"
         android:textStyle="bold"
         android:layout_marginBottom="30dp"/>
@@ -23,10 +23,10 @@
         android:layout_marginBottom="10dp"/>
 
     <TextView
-        android:id="@+id/tvKnoxStatus"
+        android:id="@+id/tvCloudLockStatus"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Knox: Checking..."
+        android:text="Cloud lock: Checking..."
         android:textSize="16sp"
         android:layout_marginBottom="10dp"/>
 
@@ -72,7 +72,16 @@
         android:id="@+id/btnOfflineUnlock"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Emergency Offline Unlock"
+        android:text="@string/lock_emergency_otp"
         android:layout_marginTop="20dp"/>
+
+    <!-- Lab channel only: shown when BuildConfig.ALLOW_DO_RELEASE is true. -->
+    <Button
+        android:id="@+id/btnLabClearDeviceOwner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/lab_clear_device_owner"
+        android:layout_marginTop="12dp"
+        android:visibility="gone"/>
 
 </LinearLayout>

@@ -5,30 +5,56 @@
     <!-- ===== PERMISSIONS ===== -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <!-- Optional: IMEI only when platform allows (e.g. Device Owner); never fabricate values. -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Android 14+: DO may use systemExempted (see docs/contracts/do-survival-and-permissions.md). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
+    <!-- Android 13+ runtime permission for the monitor foreground-service notification -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- User-confirmed exemption prompt; the app never grants this silently. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!--
+      Android 11+ package visibility: Device Owner can already see all packages for
+      setPackagesSuspended / getInstalledApplications. QUERY_ALL_PACKAGES is a
+      belt-and-suspenders for lab non-DO installs and OEM quirks. Unsuspend-all
+      requires listing every installed package; without DO or this permission the
+      list is filtered and some apps may remain suspended after CLEAR_HARDENING.
+    -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
 
-    <!-- Knox & MDM specific permissions -->
-    <uses-permission android:name="com.samsung.android.knox.permission.KNOX_HW_CONTROL" />
-    <uses-permission android:name="com.samsung.android.knox.permission.KNOX_SECURITY" />
-    <uses-permission android:name="com.samsung.android.knox.permission.KNOX_INVENTORY" />
+    <!-- Resolve emergency dialer for Lock Task allowlist (API 30+ package visibility). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+            <data android:scheme="tel" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.CALL_EMERGENCY" />
+        </intent>
+    </queries>
 
+    <!--
+      allowBackup=false: financing secrets must not leave the device via backup.
+      (lint AllowBackup: justified — explicitly disabled.)
+    -->
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.PAYO"
-        tools:replace="android:allowBackup">
+        android:theme="@style/Theme.PAYO">
 
-        <!-- ===== MAIN ACTIVITY ===== -->
         <activity
             android:name=".ui.main.MainActivity"
             android:exported="true"
@@ -39,7 +65,10 @@
             </intent-filter>
         </activity>
 
-        <!-- ===== DEVICE ADMIN RECEIVER — REQUIRED FOR DEVICE OWNER ===== -->
+        <!--
+          ExportedReceiver justification: Device Admin / DPC receivers MUST be exported for the
+          system to bind with BIND_DEVICE_ADMIN. Not a public app entry — permission-gated.
+        -->
         <receiver
             android:name=".receiver.MyDeviceAdminReceiver"
             android:exported="true"
@@ -50,26 +79,43 @@
             <intent-filter>
                 <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
                 <action android:name="android.app.action.PROFILE_PROVISIONING_COMPLETE" />
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
 
-        <!-- ===== BOOT RECEIVER — Start app after phone restart ===== -->
+        <!-- Boot: non-exported; system still delivers BOOT_COMPLETED to this package -->
         <receiver
             android:name=".receiver.BootReceiver"
-            android:exported="true">
+            android:exported="false"
+            android:directBootAware="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
 
-        <!-- ===== BACKGROUND SERVICE — Keep app running ===== -->
+        <receiver
+            android:name=".receiver.PackageAddedReceiver"
+            android:exported="false"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.intent.action.PACKAGE_ADDED" />
+                <data android:scheme="package" />
+            </intent-filter>
+        </receiver>
+
         <service
             android:name=".service.DeviceMonitorService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="systemExempted|dataSync" />
 
-        <!-- ===== FIREBASE MESSAGING SERVICE — Silent Push Commands ===== -->
+        <receiver
+            android:name=".service.DueAlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.nexivo.payo.action.DUE_ALARM" />
+            </intent-filter>
+        </receiver>
+
         <service
             android:name=".service.PayoFirebaseMessagingService"
             android:exported="false">
@@ -78,11 +124,11 @@
             </intent-filter>
         </service>
 
-        <!-- ===== KIOSK LOCK SCREEN ACTIVITY ===== -->
         <activity
             android:name=".ui.lock.LockActivity"
             android:exported="false"
             android:launchMode="singleInstance"
+            android:lockTaskMode="if_whitelisted"
             android:showWhenLocked="true"
             android:turnScreenOn="true" />
 

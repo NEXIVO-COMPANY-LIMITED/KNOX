@@ -7,16 +7,15 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
+import androidx.security.crypto.MasterKeys
 import java.security.KeyPairGenerator
 import java.security.KeyStore
-import java.security.PrivateKey
 import java.security.PublicKey
 import java.security.Signature
 
 /**
- * Manages hardware-backed cryptographic device identity within the Android Keystore
- * and hardware-encrypted credentials using EncryptedSharedPreferences.
+ * Hardware-backed device identity (Android Keystore) + encrypted credentials.
+ * No refresh-token storage — re-auth uses [signData] with the device key.
  */
 class DeviceIdentityManager(private val context: Context) {
 
@@ -24,11 +23,10 @@ class DeviceIdentityManager(private val context: Context) {
         private const val TAG = "DeviceIdentityManager"
         private const val KEY_PROVIDER = "AndroidKeyStore"
         private const val KEY_ALIAS = "payo_device_identity_key"
-        private const val SIGNATURE_ALGORITHM = "SHA256withRSA"
         private const val PREFS_NAME = "payo_identity_encrypted_prefs"
         private const val KEY_DEVICE_ID = "device_id"
         private const val KEY_ACCESS_TOKEN = "access_token"
-        private const val KEY_REFRESH_TOKEN = "refresh_token"
+        private const val KEY_PENDING_ENROLLMENT_TOKEN = "pending_enrollment_token"
     }
 
     private val keyStore: KeyStore = KeyStore.getInstance(KEY_PROVIDER).apply { load(null) }
@@ -37,28 +35,22 @@ class DeviceIdentityManager(private val context: Context) {
         ensureKeyPairGenerated()
     }
 
-    private fun getSecurePrefs(): SharedPreferences {
+    private fun getSecurePrefsOrNull(): SharedPreferences? {
         return try {
-            val masterKey = MasterKey.Builder(context)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-
+            val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
             EncryptedSharedPreferences.create(
-                context,
                 PREFS_NAME,
-                masterKey,
+                masterKeyAlias,
+                context,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
         } catch (e: Exception) {
-            Log.w(TAG, "EncryptedSharedPreferences fallback to standard prefs: ${e.message}")
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            Log.e(TAG, "EncryptedSharedPreferences unavailable; denying credential storage.")
+            null
         }
     }
 
-    /**
-     * Ensures an RSA 2048-bit key pair exists inside the hardware Android Keystore.
-     */
     @Synchronized
     fun ensureKeyPairGenerated() {
         try {
@@ -83,9 +75,6 @@ class DeviceIdentityManager(private val context: Context) {
         }
     }
 
-    /**
-     * Retrieves the Base64 encoded public key for backend enrollment registration.
-     */
     fun getPublicKeyPem(): String? {
         return try {
             val cert = keyStore.getCertificate(KEY_ALIAS) ?: return null
@@ -98,36 +87,57 @@ class DeviceIdentityManager(private val context: Context) {
     }
 
     /**
-     * Signs data payload using the hardware-backed private key.
+     * Signs [data] with the device identity private key (SHA256withRSA).
+     * Used for re-authentication after consecutive 401s — not for command authenticity
+     * (commands use the server ECDSA public key).
      */
-    fun signData(data: ByteArray): String? {
+    fun signData(data: ByteArray): ByteArray? {
         return try {
             val entry = keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.PrivateKeyEntry ?: return null
-            val privateKey: PrivateKey = entry.privateKey
-            val signer = Signature.getInstance(SIGNATURE_ALGORITHM)
-            signer.initSign(privateKey)
-            signer.update(data)
-            val signature = signer.sign()
-            Base64.encodeToString(signature, Base64.NO_WRAP)
+            val sig = Signature.getInstance("SHA256withRSA")
+            sig.initSign(entry.privateKey)
+            sig.update(data)
+            sig.sign()
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to sign data payload: ${e.message}", e)
+            Log.e(TAG, "signData failed: ${e.javaClass.simpleName}")
             null
         }
     }
 
-    /**
-     * Persists backend-assigned device identity tokens in hardware-encrypted storage.
-     */
-    fun saveDeviceCredentials(deviceId: String, accessToken: String, refreshToken: String) {
-        getSecurePrefs().edit()
+    fun saveDeviceCredentials(deviceId: String, accessToken: String): Boolean {
+        val prefs = getSecurePrefsOrNull() ?: return false
+        // Drop any legacy refresh_token key.
+        val ok = prefs.edit()
             .putString(KEY_DEVICE_ID, deviceId)
             .putString(KEY_ACCESS_TOKEN, accessToken)
-            .putString(KEY_REFRESH_TOKEN, refreshToken)
-            .apply()
-        Log.i(TAG, "Device credentials securely saved for Device ID: $deviceId")
+            .remove("refresh_token")
+            .commit()
+        if (ok) {
+            Log.i(TAG, "Device credentials securely saved.")
+        }
+        return ok
     }
 
-    fun getDeviceId(): String? = getSecurePrefs().getString(KEY_DEVICE_ID, null)
-    fun getAccessToken(): String? = getSecurePrefs().getString(KEY_ACCESS_TOKEN, null)
-    fun getRefreshToken(): String? = getSecurePrefs().getString(KEY_REFRESH_TOKEN, null)
+    fun getDeviceId(): String? = getSecurePrefsOrNull()?.getString(KEY_DEVICE_ID, null)
+    fun getAccessToken(): String? = getSecurePrefsOrNull()?.getString(KEY_ACCESS_TOKEN, null)
+
+    fun clearAccessToken(): Boolean {
+        val prefs = getSecurePrefsOrNull() ?: return false
+        return prefs.edit().remove(KEY_ACCESS_TOKEN).commit()
+    }
+
+    fun isEnrolled(): Boolean = !getAccessToken().isNullOrBlank() && !getDeviceId().isNullOrBlank()
+
+    fun savePendingEnrollmentToken(token: String): Boolean {
+        if (token.isBlank()) return false
+        val prefs = getSecurePrefsOrNull() ?: return false
+        return prefs.edit().putString(KEY_PENDING_ENROLLMENT_TOKEN, token).commit()
+    }
+
+    fun getPendingEnrollmentToken(): String? =
+        getSecurePrefsOrNull()?.getString(KEY_PENDING_ENROLLMENT_TOKEN, null)
+
+    fun clearPendingEnrollmentToken() {
+        getSecurePrefsOrNull()?.edit()?.remove(KEY_PENDING_ENROLLMENT_TOKEN)?.commit()
+    }
 }

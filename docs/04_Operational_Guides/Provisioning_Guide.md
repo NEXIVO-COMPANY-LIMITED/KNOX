@@ -1,94 +1,103 @@
 # Provisioning & Device Owner Enrollment Guide
 
+> **NOTICE (Payo / 2026):** Companion app + backend. Device Owner via KME / QR / ADB. Ensure provisioning extras include `enrollment_token` (never log the token value).
+
 ## 1. Device Owner (DO) Fundamentals
-A Device Policy Controller (DPC) is an ordinary Android application elevated to **Device Owner** status by the Android OS during setup on an unboxed or factory-reset device.
 
-### 1.1 Why Sideloading an APK Cannot Grant Device Owner
-Sideloading an APK via `adb install` or manual download can only grant **Device Admin (DA)** privileges. Google removed the ability for signed-in apps to self-elevate to Device Owner. Device Owner can **only** be granted:
-1. Via developer ADB command (`adb shell dpm set-device-owner`) on a clean device with no accounts added, or
-2. During initial Setup Wizard (OOBE) on a factory-reset device via NFC, QR Code, Zero-Touch, or Samsung Knox Mobile Enrollment (KME).
+Sideloading an APK via `adb install` cannot grant Device Owner. DO is granted only via:
 
----
+1. `adb shell dpm set-device-owner` on a clean device with no accounts (dev only — does **not** test QR/KME extras), or
+2. OOBE via NFC, QR, Zero-Touch, or Samsung Knox Mobile Enrollment (KME).
 
-## 2. Provisioning Methods Compared
+**After QR provisioning:** adb/USB debugging is typically **unavailable** until Developer options are enabled by hand. labDebug auto-schedules a 30-minute dead-man before any hardening.
 
-| Method | Grants Device Owner | Factory Reset Required | User Interaction | Production Suitable | Dev Suitable | Portal Link |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Knox Mobile Enrollment (KME)** | Yes | Yes (at initial boot) | None (Auto-triggers on Wi-Fi) | **Yes (Recommended for Samsung)** | Limited | [Samsung Knox Partner Portal](https://partner.samsungknox.com) |
-| **QR Code Provisioning** | Yes | Yes | Tap Welcome screen 6x & scan QR | Yes (Fallback / Pilot batches) | Yes | Internal Portal |
-| **Zero-Touch Enrollment** | Yes | Yes | None | Yes | Limited | [Google Zero-Touch Portal](https://zero-touch.google.com) |
-| **ADB Command (`dpm`)** | Yes | No accounts added | USB Debugging command | No | **Yes (Primary Dev Loop)** | Local Terminal |
+## 2. Methods compared
 
----
+| Method | Grants DO | Factory reset | Production | Dev |
+|--------|-----------|---------------|------------|-----|
+| **KME** | Yes | Yes (OOBE) | Recommended (Samsung) | Limited |
+| **QR** | Yes | Yes | Pilot / fallback | Yes |
+| **ADB `dpm`** | Yes | No accounts | No | Primary loop |
 
-## 3. Recommended Production Enrollment Flow (Samsung KME)
+## 3. Knox Mobile Enrollment (KME)
 
-### 3.1 Portal Links
-* **Samsung Knox Partner / KME Portal:** [`https://partner.samsungknox.com`](https://partner.samsungknox.com)
-* **Samsung Knox EU API Portal:** [`https://eu-api-portal.samsungknox.com`](https://eu-api-portal.samsungknox.com)
+1. [Samsung Knox Partner Portal](https://central.samsungknox.com) → Knox Mobile Enrollment → Profiles → **Device Owner**.
+2. APK download URL + component:
+   - prod: `com.nexivo.payo/.receiver.MyDeviceAdminReceiver`
+   - lab: `com.nexivo.payo.lab/com.nexivo.payo.receiver.MyDeviceAdminReceiver`
+3. Custom JSON / admin extras: `enrollment_token`, optional `server_url`, `org_id`.
+4. Assign IMEIs.
 
-### 3.2 KME Step-by-Step Operational Diagram
+**KME persistence:** A factory-reset phone whose IMEI remains in the KME console will **re-provision automatically** on next OOBE until you remove the IMEI (or profile assignment) from the console.
 
-```
-1. Pre-Registration (Kwenye KME Portal / Backend API)
-   │  • Unasajili IMEI ya simu kwenye KME Portal na kuifunganisha na Profile ya PAYO
-   │  • Profile ina APK Download URL + Receiver (`com.nexivo.payo/.receiver.MyDeviceAdminReceiver`)
-   ▼
-2. Kuwasha Simu Mpya / Factory Reset (OOBE Setup Wizard)
-   │  • Mteja/Agent anawasha simu mpya ya Samsung Galaxy
-   │  • Kwenye Welcome Screen, anaunganisha Wi-Fi au kuweka SIM kadi yenye bando
-   ▼
-3. KME Auto-Check (Simu na Samsung Cloud)
-   │  • Mfumo wa Samsung Knox uliojengwa ndani ya simu unatuma IMEI kuitambua kwenye Samsung KME Server
-   │  • Samsung Server inajibu: "Simu hii inamilikiwa na NEXIVO PAYO MDM!"
-   ▼
-4. Kujilock na Forced Silent Download
-   │  • Kioo cha simu kinaonyesha: "This device is managed by Nexivo PAYO. Setup will continue..."
-   │  • Simu inajidownload na kuji-install App yako kiatomati (`app-release.apk`)
-   │  • Mfumo wa Samsung unainua App yako kuwa DEVICE OWNER bila kuhitaji ADB wala ruhusa ya mteja!
-   ▼
-5. Utekelezaji wa Ulinzi (`onProfileProvisioningComplete`)
-   │  • Receiver ya `MyDeviceAdminReceiver` inasoma `enrollment_token`
-   │  • Inatenda ulinzi wa `AospHardening` + `KnoxHardening` na kuanzisha `DeviceMonitorService` (24/7)!
-```
+## 4. QR Code provisioning
 
-### 3.3 KME Profile Configuration Setup (Step-by-Step)
-To create the MDM profile that forces the device to install your app, follow these steps on the [Samsung Knox Partner Portal](https://central.samsungknox.com):
+1. Factory reset → Welcome → tap **six times** → Wi‑Fi → scan QR.
 
-1. **Navigate to Profiles:** On the left sidebar, under **KNOX SUITE**, click **Knox Mobile Enrollment**, then click **Profiles**.
-2. **Create Profile:** Click the **CREATE PROFILE** button.
-3. **Select Profile Type:** Choose **Device Owner (Fully Managed)** (sometimes labeled Android Enterprise).
-4. **Basic Info:**
-   * **Profile Name:** `Nexivo PAYO Enterprise DPC`
-   * **Select solutions and services to install:** Check the box for **EMM**.
-5. **EMM Configuration:**
-   * **MDM / EMM APK URI (Download URL):** Enter the URL where your built APK is hosted (e.g., `https://your-server.com/downloads/app-release.apk`).
-   * **Custom JSON Data (Provisioning Bundle):** Paste the following JSON to pass the server URL and token to the app during installation:
-     ```json
-     {
-       "android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE": {
-         "server_url": "https://your-server.com/api/v1",
-         "enrollment_token": "ET-8f92a10c-3b41-4c12-98ab"
-       }
-     }
-     ```
-6. **Save & Assign:** Save the profile and assign it to the uploaded IMEIs of your devices.
+Recommended payload (prod package shown; swap component + APK for lab):
 
----
-
-## 4. Fallback Enrollment Flow (QR Code)
-1. Perform a factory reset on the target device.
-2. On the initial "Welcome" screen, tap the screen **six times** in the same spot to activate the QR scanner.
-3. Connect to Wi-Fi when prompted.
-4. Scan the enterprise-generated QR code containing the provisioning payload:
 ```json
 {
   "android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME": "com.nexivo.payo/.receiver.MyDeviceAdminReceiver",
   "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION": "https://your-server.com/downloads/app-release.apk",
-  "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_CHECKSUM": "a3f5b8...",
+  "android.app.extra.PROVISIONING_DEVICE_ADMIN_SIGNATURE_CHECKSUM": "<URL-safe base64 SHA-256 of the signing cert>",
+  "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_CHECKSUM": "<optional APK SHA-256 if not using signature checksum>",
+  "android.app.extra.PROVISIONING_LEAVE_ALL_SYSTEM_APPS_ENABLED": true,
+  "android.app.extra.PROVISIONING_WIFI_SSID": "OptionalSSID",
+  "android.app.extra.PROVISIONING_WIFI_PASSWORD": "optional-wifi-password",
+  "android.app.extra.PROVISIONING_WIFI_SECURITY_TYPE": "WPA",
   "android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE": {
-    "enrollment_token": "ET-8f92a10c-3b41-4c12-98ab"
+    "enrollment_token": "ET-single-use-short-ttl",
+    "server_url": "https://your-server.com/",
+    "org_id": "optional-org"
   }
 }
 ```
-5. Setup wizard completes automatically, launching the DPC as Device Owner.
+
+### Checksums
+
+| Extra | Prefer | How |
+|-------|--------|-----|
+| `PROVISIONING_DEVICE_ADMIN_SIGNATURE_CHECKSUM` | **Yes** (cert-based; survives APK rebuilds with same cert) | SHA-256 of the **signing certificate**, URL-safe base64 no padding |
+| `PROVISIONING_DEVICE_ADMIN_PACKAGE_CHECKSUM` | Fallback | SHA-256 of the **APK bytes** |
+
+```bash
+# Preferred: signing cert checksum (from keystore / APK cert)
+# Example from APK cert DER:
+apksigner verify --print-certs app-lab-debug.apk
+# Then SHA-256 the cert and URL-safe base64 (no padding).
+
+# Fallback: APK content checksum
+openssl dgst -binary -sha256 app-lab-debug.apk | openssl base64 | tr '+/' '-_' | tr -d '=\n'
+```
+
+### labDebug QR
+
+- Component: `com.nexivo.payo.lab/com.nexivo.payo.receiver.MyDeviceAdminReceiver`
+- APK must be labDebug (`applicationId` `com.nexivo.payo.lab`)
+- `PostProvisioningSetup` auto-schedules **30m dead-man** before minimal hardening
+- Full hardening only after enrollment + offline key (see mock-server below)
+
+### `PROVISIONING_LEAVE_ALL_SYSTEM_APPS_ENABLED`
+
+Set `true` so system apps (dialer, Settings, etc.) remain enabled during DO provisioning — required for emergency dial and lab recovery UX.
+
+### Optional Wi‑Fi extras
+
+`PROVISIONING_WIFI_SSID` / `PASSWORD` / `SECURITY_TYPE` let OOBE join Wi‑Fi without manual entry (useful for unattended QR).
+
+## 5. Post-provisioning order (app)
+
+1. labDebug: schedule 30m dead-man  
+2. Minimal policy (uninstall block), financing stays **ACTIVE**  
+3. Enrollment exchange → offline key required  
+4. **Then** full hardening; lock only if server `lockStatus` says so  
+5. Enrollment failure → retry with backoff, **never** PARTIAL_LOCK/LOCKED  
+
+## 6. Lab mock backend
+
+See `tools/mock-server/README.md` (outside the APK). Default token `lab-enroll-token`.
+
+## 7. Token contract
+
+See `docs/contracts/enrollment-token-contract.md` (single-use, short TTL, IMEI/serial bound; never log).

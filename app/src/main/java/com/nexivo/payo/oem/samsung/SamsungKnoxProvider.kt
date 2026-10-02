@@ -1,161 +1,48 @@
 package com.nexivo.payo.oem.samsung
 
-import android.app.admin.DevicePolicyManager
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
-import android.os.Build
 import android.util.Log
-import com.nexivo.payo.BuildConfig
-import com.nexivo.payo.oem.OemCapabilityProvider
-import com.samsung.android.knox.EnterpriseDeviceManager
-import com.samsung.android.knox.license.EnterpriseLicenseManager
+import com.nexivo.payo.oem.KnoxProvider
 
 /**
- * Samsung-specific hardware management implementation enforcing bank-grade Knox policies.
+ * Reflection-based Knox integration so non-Samsung builds do not require the proprietary SDK.
+ * License activation and license material belong outside the APK and are intentionally absent.
  */
-class SamsungKnoxProvider(private val context: Context) : OemCapabilityProvider {
+class SamsungKnoxProvider(context: Context) : KnoxProvider {
+    private val appContext = context.applicationContext ?: context
 
-    companion object {
-        private const val TAG = "SamsungKnoxProvider"
-    }
+    override val isAvailable: Boolean
+        get() = runCatching {
+            Class.forName(ENTERPRISE_MANAGER)
+            Class.forName(APPLICATION_POLICY)
+        }.isSuccess
 
-    override val oemId: String = "SAMSUNG"
-    private val edm: EnterpriseDeviceManager? = try { EnterpriseDeviceManager.getInstance(context) } catch (_: Exception) { null }
-    private val restrictionPolicy = edm?.restrictionPolicy
-    private val kioskMode = edm?.kioskMode
-    private var isReceiverRegistered = false
+    override fun applyOptionalHardening(): Boolean =
+        invokeApplicationPolicy("setApplicationUninstallationDisabled")
 
-    override fun isAvailable(): Boolean = try { EnterpriseDeviceManager.getKnoxVersion() != null } catch (_: Exception) { false }
+    override fun clearOptionalHardening(): Boolean =
+        invokeApplicationPolicy("setApplicationUninstallationEnabled")
 
-    override fun activateLicense() {
-        if (edm == null) return
-        registerLicenseReceiver()
-        try {
-            Log.i(TAG, "Activating Samsung Knox License...")
-            EnterpriseLicenseManager.getInstance(context).activateLicense(BuildConfig.KNOX_LICENSE_KEY)
-        } catch (e: Exception) {
-            Log.e(TAG, "Knox license activation call failed: ${e.message}")
-            safelyUnregisterReceiver()
-        }
-    }
-
-    override fun applyHardwareHardening() {
-        Log.i(TAG, "Applying hardware-level Knox security hardening...")
-        try {
-            // Firmware & Recovery Mode Hardening
-            restrictionPolicy?.allowFactoryReset(false)
-            restrictionPolicy?.allowSafeMode(false)
-            restrictionPolicy?.allowOTAUpgrade(false)
-
-            // Interface & USB Hardening
-            restrictionPolicy?.setUsbDebugging(false)
-            restrictionPolicy?.setUsbMassStorageState(false)
-            restrictionPolicy?.setUsbTethering(false)
-            restrictionPolicy?.setWifiTethering(false)
-            restrictionPolicy?.setBluetooth(false)
-            restrictionPolicy?.allowSDCard(false)
-
-            // Data Leak Protection
-            restrictionPolicy?.setScreenCapture(false)
-            restrictionPolicy?.allowClipboard(false)
-
-            // Password Policy Hardening via Knox
-            edm?.passwordPolicy?.setPasswordQuality(DevicePolicyManager.PASSWORD_QUALITY_NUMERIC_COMPLEX)
-            edm?.passwordPolicy?.setPasswordMinimumLength(6)
-
-            Log.i(TAG, "Full Knox hardware hardening applied successfully.")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error applying Knox hardware restrictions: ${e.message}")
-        }
-    }
-
-    override fun clearHardwareRestrictions() {
-        Log.w(TAG, "Clearing Knox hardware restrictions for offboarding...")
-        try {
-            restrictionPolicy?.allowFactoryReset(true)
-            restrictionPolicy?.allowSafeMode(true)
-            restrictionPolicy?.allowOTAUpgrade(true)
-            restrictionPolicy?.setCameraState(true)
-            restrictionPolicy?.setScreenCapture(true)
-            restrictionPolicy?.allowClipboard(true)
-            restrictionPolicy?.setUsbDebugging(true)
-            restrictionPolicy?.setUsbMassStorageState(true)
-            restrictionPolicy?.setUsbTethering(true)
-            restrictionPolicy?.setWifiTethering(true)
-            restrictionPolicy?.setBluetooth(true)
-            restrictionPolicy?.allowSDCard(true)
-
-            if (kioskMode?.isKioskModeEnabled == true) {
-                kioskMode.disableKioskMode()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error clearing Knox hardware restrictions: ${e.message}")
-        }
-    }
-
-    override fun setKioskMode(enabled: Boolean, pkg: String): Boolean {
+    private fun invokeApplicationPolicy(methodName: String): Boolean {
+        if (!isAvailable) return false
         return try {
-            if (enabled) {
-                Log.i(TAG, "Enabling Knox Kiosk mode for package: $pkg")
-                kioskMode?.setStatusBarExpansionAllowed(false)
-                kioskMode?.setNavigationBarHidden(true)
-                kioskMode?.enableKioskMode(pkg)
-            } else {
-                Log.i(TAG, "Disabling Knox Kiosk mode...")
-                kioskMode?.setStatusBarExpansionAllowed(true)
-                kioskMode?.setNavigationBarHidden(false)
-                kioskMode?.disableKioskMode()
-            }
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Knox Kiosk toggle failed: ${e.message}")
+            val managerClass = Class.forName(ENTERPRISE_MANAGER)
+            val manager = managerClass.getMethod("getInstance", Context::class.java)
+                .invoke(null, appContext)
+            val applicationPolicy = managerClass.getMethod("getApplicationPolicy").invoke(manager)
+            val result = applicationPolicy.javaClass
+                .getMethod(methodName, String::class.java)
+                .invoke(applicationPolicy, appContext.packageName)
+            result !is Boolean || result
+        } catch (error: Throwable) {
+            Log.w(TAG, "$methodName unavailable: ${error.javaClass.simpleName}")
             false
         }
     }
 
-    override fun rebootDevice() {
-        try {
-            Log.i(TAG, "Executing Knox system reboot...")
-            edm?.reboot("Remote MDM reboot instruction")
-        } catch (e: Exception) {
-            Log.e(TAG, "Knox reboot execution failed: ${e.message}")
-        }
-    }
-
-    override fun configureNetworkIsolation(enabled: Boolean) {
-        try {
-            Log.i(TAG, "Configuring Knox cellular data restriction: isolated=$enabled")
-            restrictionPolicy?.setCellularData(!enabled)
-        } catch (e: Exception) {
-            Log.e(TAG, "Network isolation configuration failed: ${e.message}")
-        }
-    }
-
-    private val licenseReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            if (EnterpriseLicenseManager.ACTION_LICENSE_STATUS == intent.action) {
-                val status = intent.getIntExtra(EnterpriseLicenseManager.EXTRA_LICENSE_STATUS, -1)
-                Log.i(TAG, "Knox License status received: status=$status")
-                safelyUnregisterReceiver()
-            }
-        }
-    }
-
-    private fun registerLicenseReceiver() {
-        if (isReceiverRegistered) return
-        val filter = IntentFilter(EnterpriseLicenseManager.ACTION_LICENSE_STATUS)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(licenseReceiver, filter, Context.RECEIVER_EXPORTED)
-        } else {
-            context.registerReceiver(licenseReceiver, filter)
-        }
-        isReceiverRegistered = true
-    }
-
-    private fun safelyUnregisterReceiver() {
-        if (!isReceiverRegistered) return
-        try { context.unregisterReceiver(licenseReceiver) } catch (_: Exception) {} finally { isReceiverRegistered = false }
+    private companion object {
+        const val TAG = "SamsungKnoxProvider"
+        const val ENTERPRISE_MANAGER = "com.samsung.android.knox.EnterpriseDeviceManager"
+        const val APPLICATION_POLICY = "com.samsung.android.knox.application.ApplicationPolicy"
     }
 }

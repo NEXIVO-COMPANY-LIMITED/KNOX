@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mobile money app package names allowed in Lock Task mode (add one <item> per package). -->
+    <string-array name="mobile_money_packages" translatable="false" />
+    <!-- HTTPS payment host suffixes (APK or QR extras only — never from heartbeat). -->
+    <string-array name="payment_https_hosts" translatable="false">
+        <!-- e.g. <item>example.com</item> -->
+    </string-array>
+    <!-- Allowed USSD prefixes for Pay (mobile-money). Empty = deny all USSD. -->
+    <string-array name="ussd_allowed_prefixes" translatable="false">
+        <!-- e.g. <item>*150*</item> -->
+    </string-array>
+</resources>

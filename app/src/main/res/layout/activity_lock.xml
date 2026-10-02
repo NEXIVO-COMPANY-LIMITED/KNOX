@@ -37,9 +37,10 @@
 
         <!-- Title -->
         <TextView
+            android:id="@+id/tvLockTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Device Locked"
+            android:text="@string/lock_title"
             android:textColor="#FF0000"
             android:textSize="30sp"
             android:textStyle="bold"
@@ -51,7 +52,7 @@
             android:id="@+id/tvLockReason"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Your installment payment of TZS 45,000 was due on 15 Sep 2026. Please make a payment to continue using your smartphone."
+            android:text="@string/lock_reason_waiting"
             android:textColor="#94A3B8"
             android:textSize="15sp"
             android:lineSpacingMultiplier="1.5"
@@ -84,9 +85,10 @@
                 android:layout_marginEnd="8dp" />
 
             <TextView
+                android:id="@+id/tvPayNowLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Pay Now via USSD"
+                android:text="@string/lock_pay_ussd"
                 android:textColor="#FFFFFF"
                 android:textSize="16sp"
                 android:textStyle="bold" />
@@ -109,7 +111,7 @@
             android:layout_width="match_parent"
             android:layout_height="56dp"
             android:background="@drawable/bg_btn_primary"
-            android:text="Enter Emergency OTP"
+            android:text="@string/lock_emergency_otp"
             android:textColor="#FFFFFF"
             android:textSize="16sp"
             android:textStyle="bold"
@@ -147,7 +149,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="PAYO SECURE"
+            android:text="@string/lock_footer_brand"
             android:textColor="#94A3B8"
             android:textSize="12sp"
             android:textStyle="bold"
@@ -156,7 +158,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="This device is protected by official kiosk MDM."
+            android:text="@string/lock_footer_subtitle"
             android:textColor="#94A3B8"
             android:textSize="11sp"
             android:alpha="0.6" />

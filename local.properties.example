@@ -1,0 +1,42 @@
+## Copy to local.properties (gitignored) and fill in local/CI values.
+## Never commit real secrets. Samsung Knox Guard credentials (keys.json, clientId)
+## belong on the backend only — never in this Android app.
+
+# Android SDK (usually written by Android Studio):
+# sdk.dir=C\:\\Users\\YOU\\AppData\\Local\\Android\\Sdk
+
+# ----- Backend (required for release) -----
+# Required for release builds (must be https://). Optional for debug (empty allowed).
+# See docs/04_Operational_Guides/Release_Build_Config.md
+SERVER_BASE_URL=https://api.example.com/
+
+# Optional / transitional DEBUG only. Release BuildConfig always embeds "".
+SERVER_API_KEY=
+
+# ----- TLS certificate pinning (release only; NO defaults) -----
+# Pin SPKI public keys (primary + backup) so rotation does not brick clients.
+# Format: sha256/<base64>
+# Debug builds ignore these (pinning disabled).
+CERT_PIN_HOST=
+CERT_PIN_SHA256=
+CERT_PIN_SHA256_BACKUP=
+
+# ----- Release signing (required for assembleProdRelease; fail closed) -----
+# STORE_FILE=release.keystore
+# STORE_PASSWORD=
+# KEY_ALIAS=
+# KEY_PASSWORD=
+# Local minify only (not for distribution):
+# ALLOW_DEBUG_SIGNED_RELEASE=true
+
+# ----- Lab channel signing (optional; separate from prod; omit → Android debug keystore) -----
+# Used by product flavor `lab` (applicationId com.nexivo.payo.lab). Never use prod keys.
+# LAB_STORE_FILE=lab.keystore
+# LAB_STORE_PASSWORD=
+# LAB_KEY_ALIAS=
+# LAB_KEY_PASSWORD=
+
+# ----- Firebase / FCM -----
+# Place google-services.json in app/ (gitignored). If missing, the Google Services
+# plugin is skipped; debug/unit tests still compile; push is unavailable and the app
+# falls back to WorkManager command polling.

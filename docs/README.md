@@ -1,47 +1,32 @@
-# KNOX Enterprise MDM Documentation
+# Payo Documentation Hub
 
-Welcome to the official technical documentation for the **KNOX Mobile Device Management (MDM)** platform.
-
-## Architecture Overview
-The platform is a **single-tenant, single-organization core MDM system** consisting of:
-* **Kotlin Device Policy Controller (`android-mdm`):** Android application operating in Device Owner mode with an OEM abstraction layer (`OemCapabilityProvider`).
-* **Kotlin / Spring Boot Backend (`mdm-backend`):** Stateless REST API server with PostgreSQL storage and Redis caching.
-* **No Admin UI / Web Console:** Built strictly as a backend + DPC solution exposing clean REST APIs for integration.
+Welcome to the official documentation for **Payo** — the financed-device companion app and backend integration architecture.
 
 ---
 
-## Documentation Index
-
-### [01 Strategy](./01_Strategy/README.md)
-Foundational goals, scope boundaries, privacy standards, and glossary.
-* [Project Master Overview & Operational Guide](./01_Strategy/Project_Master_Overview_and_Operational_Guide.md)
-* [Business Requirements & Product Scope](./01_Strategy/Business_Requirements.md)
-* [Privacy and Compliance Standards](./01_Strategy/Privacy_and_Compliance.md)
-* [Technical and Business Glossary](./01_Strategy/Glossary.md)
-
-### [02 Architecture](./02_Architecture/README.md)
-System architecture, OEM abstraction, operational flows, and security model.
-* [Master Architecture Specification](./02_Architecture/Master_Architecture.md)
-* [System Operational Flows](./02_Architecture/Operational_Flows.md)
-* [Security Model and Hardening](./02_Architecture/Security_Model.md)
-
-### [03 System Specifications](./03_System_Specifications/README.md)
-Detailed technical specifications for developers and architects.
-* [Samsung Knox Backend Master Implementation Guide](./03_System_Specifications/Samsung_Knox_Backend_Server_Complete_Guide.md)
-* [Backend Developer Handoff Guide](./03_System_Specifications/Backend_Developer_Handoff_Guide.md)
-* [Backend REST API Reference](./03_System_Specifications/Backend_API_Reference.md)
-* [Database Schema & Data Architecture (PostgreSQL)](./03_System_Specifications/Database_Schema.md)
-* [Device DPC Specifications (`android-mdm`)](./03_System_Specifications/Device_DPC_Specs.md)
-
-### [04 Operational Guides](./04_Operational_Guides/README.md)
-Guides for provisioning, account setup, and maintenance.
-* [Provisioning & Device Owner Enrollment Guide](./04_Operational_Guides/Provisioning_Guide.md)
-* [Portal Registration & Account Setup Sequence](./04_Operational_Guides/Portal_Registration.md)
-* [Maintenance and Troubleshooting Guide](./04_Operational_Guides/Maintenance_Troubleshooting.md)
-
-### [05 Implementation Roadmap](./05_Implementation_Roadmap/README.md)
-Master technical implementation plan and development phases.
-* [Master Technical Implementation Plan](./05_Implementation_Roadmap/Full_Implementation_Plan.md)
+## 🏗️ Core Architecture (Authoritative)
+```
+[Payo Android App (Device Owner)] ◄── HTTPS REST / mTLS ──► [Backend Server (External)] ◄── Samsung Knox Guard REST API
+```
+- **Android App:** Device Owner (DO) companion app enforcing offline lock, tampering protection, audit logging, and secure sync.
+- **Backend:** Manages financing state, push notifications (FCM), and communicates with Samsung Knox Guard REST APIs.
+- **Samsung Knox Guard:** Cloud-level device locking infrastructure. (The app does **not** embed the Samsung Knox SDK; cloud lock/unlock is backend-owned and enforced via DPC policies).
 
 ---
-*Nexivo Enterprise Standards - 2026*
+
+## 📂 Documentation Structure
+
+| Folder / Document | Description |
+| :--- | :--- |
+| **[OUTSIDE_REPO_CHECKLIST.md](./OUTSIDE_REPO_CHECKLIST.md)** | Checklist for external deployment, KME portal, and backend server setup. |
+| **[Audit Report](./2026-10-01-Payo_Knox_Guard_Financing_Audit.md)** | Comprehensive security and financing audit report. |
+| **[01_Strategy/](./01_Strategy/)** | Business requirements, compliance, privacy, and core strategy. |
+| **[02_Architecture/](./02_Architecture/)** | Master architecture, security model, and operational flows. |
+| **[03_System_Specifications/](./03_System_Specifications/)** | Backend API references, database schemas, and DPC specifications. |
+| **[04_Operational_Guides/](./04_Operational_Guides/)** | Provisioning guides, physical test matrix, troubleshooting, and build configs. |
+| **[05_Implementation_Roadmap/](./05_Implementation_Roadmap/)** | Implementation status, phase milestones, and roadmap overview. |
+| **[contracts/](./contracts/)** | Technical design contracts (device binding, data survival, command ACK, offline unlock). |
+
+---
+
+*Nexivo — Payo Documentation Suite — 2026*

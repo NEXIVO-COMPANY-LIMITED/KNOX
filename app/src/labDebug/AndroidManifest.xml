@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- labDebug ONLY — absent from prod* and labRelease. DUMP = adb/shell only. -->
+    <application tools:ignore="MissingApplicationIcon">
+        <receiver
+            android:name=".security.LabAdbEscapeReceiver"
+            android:exported="true"
+            android:enabled="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="com.nexivo.payo.lab.CLEAR_DEVICE_OWNER" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".security.LabHardeningToggleReceiver"
+            android:exported="true"
+            android:enabled="true"
+            android:permission="android.permission.DUMP">
+            <intent-filter>
+                <action android:name="com.nexivo.payo.lab.ENABLE_HARDENING_GROUP" />
+                <action android:name="com.nexivo.payo.lab.DISABLE_HARDENING_GROUP" />
+                <action android:name="com.nexivo.payo.lab.APPLY_HARDENING" />
+                <action android:name="com.nexivo.payo.lab.CLEAR_HARDENING" />
+                <action android:name="com.nexivo.payo.lab.SET_AUTO_RELEASE" />
+                <action android:name="com.nexivo.payo.lab.CANCEL_AUTO_RELEASE" />
+                <action android:name="com.nexivo.payo.lab.DUMP_POLICY_STATE" />
+                <action android:name="com.nexivo.payo.lab.SET_STATE" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".security.LabAutoReleaseAlarmReceiver"
+            android:exported="false"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="com.nexivo.payo.lab.AUTO_RELEASE_FIRE" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

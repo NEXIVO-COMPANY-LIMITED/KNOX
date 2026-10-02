@@ -1,150 +1,297 @@
 package com.nexivo.payo.financing
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import com.nexivo.payo.audit.AuditManager
-import com.nexivo.payo.knox.policy.SecurityCoordinator
-import java.nio.charset.StandardCharsets
+import com.nexivo.payo.policy.DeviceFinancingState
+import com.nexivo.payo.policy.DeviceFinancingStateStore
+import com.nexivo.payo.policy.EncryptedDeviceFinancingStateStore
+import com.nexivo.payo.policy.PolicyEngine
 import java.util.concurrent.TimeUnit
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
 
 /**
- * Manages device sync state and offline emergency unlock verification.
- * Supports single-use HMAC-SHA256 OTP verification with replay protection
- * and anti-brute-force rate limiting (3 failed attempts -> 15 min cooldown).
+ * Offline emergency unlock via per-device HMAC OTP.
+ *
+ * On success while offline: unlock locally, persist a pending unlock report, and schedule
+ * WorkManager upload so the backend can re-verify and unlock Knox Guard.
+ *
+ * TODO(Samsung): Confirm whether Knox Guard offers an official offline unlock path for our
+ * program; if yes, this custom OTP may be replaced by Samsung's method.
  */
-class OfflineLockManager(private val context: Context) {
+class OfflineLockManager internal constructor(
+    private val keyStore: OfflineUnlockKeyStore,
+    private val secureState: OfflineUnlockSecureState,
+    private val otpEngine: OfflineOtpEngine,
+    private val reportScheduler: OfflineUnlockReportScheduler,
+    private val wallClockMs: () -> Long,
+    private val elapsedRealtimeMs: () -> Long,
+    /** Trusted now (server+elapsed); null when rollback detected — used for OTP. */
+    private val trustedNowMs: () -> Long?,
+    /**
+     * Effective now for due-date / max-offline: never earlier than last known server time
+     * when the clock is untrusted (`max(wall, lastServer)`).
+     */
+    private val effectiveNowMs: () -> Long,
+    private val lastSuccessfulHeartbeatMs: () -> Long,
+    private val onLocalUnlock: () -> Unit,
+    private val onOfflineUnlockSuccess: () -> Unit,
+    private val audit: (category: String, action: String, detail: String) -> Unit,
+    private val markSynced: () -> Unit,
+    private val financingStateStore: DeviceFinancingStateStore,
+    private val transitionFinancingState: (DeviceFinancingState, String) -> Unit,
+    private val logI: (String) -> Unit = {},
+    private val logW: (String) -> Unit = {},
+    private val logE: (String) -> Unit = {}
+) {
+
+    constructor(context: Context) : this(
+        keyStore = EncryptedOfflineUnlockKeyStore(context),
+        secureState = EncryptedOfflineUnlockSecureState(context),
+        otpEngine = DefaultOfflineOtpEngine,
+        reportScheduler = WorkManagerOfflineUnlockReportScheduler(context),
+        wallClockMs = { System.currentTimeMillis() },
+        elapsedRealtimeMs = { SystemClock.elapsedRealtime() },
+        trustedNowMs = {
+            com.nexivo.payo.time.TrustedTimeAnchor.create(context.applicationContext).nowTrustedMs()
+        },
+        effectiveNowMs = {
+            com.nexivo.payo.time.TrustedTimeAnchor.create(context.applicationContext).effectiveNowMs()
+        },
+        lastSuccessfulHeartbeatMs = {
+            context.getSharedPreferences(PREFS_SYNC, Context.MODE_PRIVATE)
+                .getLong(KEY_LAST_SYNC, 0L)
+        },
+        onLocalUnlock = {
+            // UI + DPM unlock happen only via state-machine onEnter (ACTIVE).
+        },
+        onOfflineUnlockSuccess = createOfflineUnlockSuccessHook(context),
+        audit = { c, a, d -> AuditManager(context).logEvent(c, a, d) },
+        markSynced = {
+            context.getSharedPreferences(PREFS_SYNC, Context.MODE_PRIVATE)
+                .edit()
+                .putLong(KEY_LAST_SYNC, System.currentTimeMillis())
+                .apply()
+        },
+        financingStateStore = EncryptedDeviceFinancingStateStore(context.applicationContext),
+        transitionFinancingState = { state, reason ->
+            PolicyEngine(context.applicationContext).financingStateMachine().transition(state, reason)
+        },
+        logI = { msg -> Log.i(TAG, msg) },
+        logW = { msg -> Log.w(TAG, msg) },
+        logE = { msg -> Log.e(TAG, msg) }
+    )
 
     companion object {
         private const val TAG = "OfflineLockManager"
-        private const val PREFS_NAME = "payo_financing_prefs"
+        private const val PREFS_SYNC = "payo_financing_prefs"
         private const val KEY_LAST_SYNC = "last_successful_sync"
-        private const val KEY_LAST_USED_OTP_EPOCH = "last_used_otp_epoch"
-        private const val KEY_FAILED_ATTEMPTS = "failed_otp_attempts"
-        private const val KEY_LOCKOUT_UNTIL = "lockout_until_timestamp"
-        private const val HMAC_SHARED_SECRET = "PAYO_MDM_OFFLINE_SECRET_2026_KEY"
+        private const val MAX_FAILED_BEFORE_LOCKOUT = 5
+        private val FULL_LOCK_OVERDUE_MS = TimeUnit.DAYS.toMillis(3)
 
-        private const val MAX_FAILED_ATTEMPTS = 3
-        private val COOLDOWN_DURATION_MS = TimeUnit.MINUTES.toMillis(15)
-    }
+        private val LOCKOUT_DURATIONS_MS = longArrayOf(
+            TimeUnit.MINUTES.toMillis(1),
+            TimeUnit.MINUTES.toMillis(5),
+            TimeUnit.MINUTES.toMillis(15),
+            TimeUnit.HOURS.toMillis(1)
+        )
 
-    private val coordinator = SecurityCoordinator(context)
-    private val auditManager = AuditManager(context)
-    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-
-    /**
-     * Records a successful synchronization event to track sync history.
-     */
-    fun updateLastSyncTimestamp() {
-        prefs.edit().putLong(KEY_LAST_SYNC, System.currentTimeMillis()).apply()
-        Log.i(TAG, "Sync timestamp updated successfully.")
-    }
-
-    /**
-     * Verifies operational sync state without triggering autonomous auto-locks.
-     */
-    fun verifyOperationalStatus() {
-        val lastSync = prefs.getLong(KEY_LAST_SYNC, System.currentTimeMillis())
-        val timeOffline = System.currentTimeMillis() - lastSync
-        Log.d(TAG, "Operational status check: Time since last sync = ${timeOffline / 1000}s")
-    }
-
-    /**
-     * Verifies a 6-digit offline emergency unlock code generated by the admin console.
-     * Computes HMAC-SHA256 of (IMEI + Day Epoch) to allow zero-network emergency unlock.
-     * Includes anti-brute-force lockout protection (3 wrong attempts -> 15 minute cooldown).
-     */
-    fun verifyOfflineUnlockCode(enteredCode: String, imei: String): Boolean {
-        if (enteredCode.length != 6) return false
-
-        // 1. Anti-Brute-Force Rate Limiting Check
-        val now = System.currentTimeMillis()
-        val lockoutUntil = prefs.getLong(KEY_LOCKOUT_UNTIL, 0L)
-        if (now < lockoutUntil) {
-            val remainingMinutes = TimeUnit.MILLISECONDS.toMinutes(lockoutUntil - now) + 1
-            Log.w(TAG, "OTP verification rejected due to active lockout ($remainingMinutes mins remaining).")
-            auditManager.logEvent("SECURITY", "OFFLINE_OTP_LOCKOUT_ACTIVE", "Attempt rejected during $remainingMinutes min lockout.")
-            return false
-        }
-
-        val currentDayEpoch = TimeUnit.MILLISECONDS.toDays(now)
-        val lastUsedEpoch = prefs.getLong(KEY_LAST_USED_OTP_EPOCH, -1L)
-
-        val validTodayCode = generateHmacOtp(imei, currentDayEpoch)
-        val validYesterdayCode = generateHmacOtp(imei, currentDayEpoch - 1)
-
-        var matchedEpoch: Long? = null
-        if (enteredCode == validTodayCode) {
-            matchedEpoch = currentDayEpoch
-        } else if (enteredCode == validYesterdayCode) {
-            matchedEpoch = currentDayEpoch - 1
-        }
-
-        // 2. Validate Code Match
-        if (matchedEpoch == null) {
-            val failedCount = prefs.getInt(KEY_FAILED_ATTEMPTS, 0) + 1
-            prefs.edit().putInt(KEY_FAILED_ATTEMPTS, failedCount).apply()
-
-            Log.w(TAG, "Invalid offline OTP attempt ($failedCount/$MAX_FAILED_ATTEMPTS).")
-            auditManager.logEvent("SECURITY", "OFFLINE_OTP_FAILED", "Failed attempt $failedCount/$MAX_FAILED_ATTEMPTS")
-
-            if (failedCount >= MAX_FAILED_ATTEMPTS) {
-                val newLockout = now + COOLDOWN_DURATION_MS
-                prefs.edit()
-                    .putLong(KEY_LOCKOUT_UNTIL, newLockout)
-                    .putInt(KEY_FAILED_ATTEMPTS, 0)
-                    .apply()
-                Log.e(TAG, "Max OTP attempts reached! Lockout active for 15 minutes.")
-                auditManager.logEvent("SECURITY", "OFFLINE_OTP_LOCKOUT_TRIGGERED", "15 minute rate-limit lockout triggered.")
+        private fun createOfflineUnlockSuccessHook(context: Context): () -> Unit {
+            val policyEngine = PolicyEngine(context.applicationContext)
+            val stateMachine = policyEngine.financingStateMachine()
+            val stateStore = policyEngine.financingStateStore()
+            return {
+                val now = System.currentTimeMillis()
+                val graceMs = OfflineUnlockPolicy.unlockGraceDurationMs(
+                    dueEpochMs = stateStore.getDueEpochMs(),
+                    nowMs = now
+                )
+                // Transition marks OTP guard expiry = now + grace (tied to unlock validity).
+                stateMachine.transition(DeviceFinancingState.ACTIVE, "OFFLINE_OTP_UNLOCK")
+                stateStore.startUnlockGrace(graceMs, now)
             }
+        }
+    }
+
+    fun updateLastSyncTimestamp() {
+        markSynced()
+        logI("Sync timestamp updated successfully.")
+    }
+
+    fun verifyOperationalStatus() {
+        val effectiveNow = effectiveNowMs()
+
+        if (financingStateStore.getState() == DeviceFinancingState.RELEASED) {
+            logI("Operational status check skipped: financing released.")
+            return
+        }
+        if (financingStateStore.isUnlockGraceActive(effectiveNow)) {
+            logI("Operational status check skipped: unlock grace active.")
+            return
+        }
+
+        when (
+            val offline = MaxOfflinePolicy.decide(
+                current = financingStateStore.getState(),
+                lastHeartbeatMs = lastSuccessfulHeartbeatMs().takeIf { it > 0L },
+                effectiveNowMs = effectiveNow
+            )
+        ) {
+            is MaxOfflinePolicy.Decision.Escalate -> {
+                transitionFinancingState(offline.to, "MAX_OFFLINE")
+                logW("Max-offline escalate to ${offline.to}; connect to the internet.")
+            }
+            MaxOfflinePolicy.Decision.None -> Unit
+        }
+
+        val dueEpochMs = financingStateStore.getDueEpochMs() ?: return
+        if (effectiveNow <= dueEpochMs) return
+
+        val desiredState = if (effectiveNow - dueEpochMs > FULL_LOCK_OVERDUE_MS) {
+            DeviceFinancingState.LOCKED
+        } else {
+            DeviceFinancingState.PARTIAL_LOCK
+        }
+        transitionFinancingState(desiredState, "OFFLINE_DUE_DATE")
+        logW("Offline due-date enforcement requested: state=$desiredState.")
+    }
+
+    /** Remaining lockout time in ms, or 0 if not locked out. */
+    fun lockoutRemainingMs(): Long {
+        val until = secureState.lockoutUntilWallMs
+        val remaining = until - wallClockMs()
+        return if (remaining > 0L) remaining else 0L
+    }
+
+    fun hasProvisionedKey(): Boolean = keyStore.getHmacKey() != null
+
+    /**
+     * Verifies a 6-digit offline OTP bound to [deviceId] and the current/previous 30-minute window.
+     * Never logs OTP, key, or expected codes.
+     */
+    fun verifyOfflineUnlockCode(enteredCode: String, deviceId: String): Boolean {
+        if (enteredCode.length != 6 || !enteredCode.all { it.isDigit() }) return false
+        if (deviceId.isBlank()) return false
+
+        if (secureState.offlineUnlockCount >= OfflineUnlockPolicy.MAX_OFFLINE_UNLOCKS_PER_CONTRACT) {
+            logE("Offline unlock denied: per-contract unlock cap reached.")
+            audit(
+                "SECURITY",
+                "OFFLINE_OTP_CAP",
+                "Denied: offlineUnlockCount=${secureState.offlineUnlockCount}"
+            )
             return false
         }
 
-        // 3. Single-Use Replay Protection: Reject if this epoch was already marked as used
-        if (matchedEpoch <= lastUsedEpoch) {
-            Log.w(TAG, "Replay attack prevented: OTP for epoch $matchedEpoch has already been used.")
-            auditManager.logEvent("SECURITY", "OFFLINE_OTP_REPLAY_REJECTED", "Reused OTP rejected for epoch $matchedEpoch")
+        val hmacKey = keyStore.getHmacKey()
+        if (hmacKey == null) {
+            logE("Offline unlock denied: no provisioned HMAC key.")
+            audit("SECURITY", "OFFLINE_OTP_NO_KEY", "Denied: HMAC key not provisioned.")
             return false
         }
 
-        // 4. Reset Failed Counter, Mark Code as Used & Unlock Device
-        Log.i(TAG, "Valid single-use offline emergency unlock code verified for epoch $matchedEpoch. Unlocking device...")
-        prefs.edit()
-            .putLong(KEY_LAST_USED_OTP_EPOCH, matchedEpoch)
-            .putInt(KEY_FAILED_ATTEMPTS, 0)
-            .putLong(KEY_LOCKOUT_UNTIL, 0L)
-            .apply()
+        val nowTrusted = trustedNowMs()
+        if (nowTrusted == null) {
+            logE("Offline unlock denied: trusted-time rollback detected.")
+            audit("SECURITY", "OFFLINE_OTP_CLOCK_FAIL", "Denied: trusted-time rollback.")
+            return false
+        }
+        val nowWall = wallClockMs()
+        val nowElapsed = elapsedRealtimeMs()
 
-        auditManager.logEvent("SECURITY", "OFFLINE_OTP_UNLOCK", "Device unlocked via offline OTP for epoch $matchedEpoch.")
-        
+        if (!otpEngine.isClockTrusted(
+                nowWall,
+                nowElapsed,
+                secureState.lastWallClockMs,
+                secureState.lastElapsedRealtimeMs
+            )
+        ) {
+            logE("Offline unlock denied: clock integrity check failed.")
+            audit("SECURITY", "OFFLINE_OTP_CLOCK_FAIL", "Denied: clock tamper suspected.")
+            return false
+        }
+
+        if (nowTrusted < secureState.lockoutUntilWallMs) {
+            logW("Offline unlock denied: lockout active.")
+            audit("SECURITY", "OFFLINE_OTP_LOCKOUT_ACTIVE", "Attempt rejected during lockout.")
+            return false
+        }
+
+        // One-window tolerance before and after the current windowEpoch (trusted time).
+        val currentWindow = DefaultOfflineOtpEngine.currentWindowEpoch(nowTrusted)
+        val candidateWindows = longArrayOf(currentWindow - 1L, currentWindow, currentWindow + 1L)
+        val generated = candidateWindows.map { window ->
+            window to otpEngine.generateOtp(hmacKey, deviceId, window)
+        }
+        if (generated.any { it.second == null }) {
+            logE("Offline unlock denied: crypto failure.")
+            audit("SECURITY", "OFFLINE_OTP_CRYPTO_FAIL", "Denied: OTP generation failed.")
+            registerFailedAttempt(nowTrusted)
+            return false
+        }
+        val matchedWindow: Long? = generated.firstOrNull { (_, otp) ->
+            otpEngine.constantTimeEquals(enteredCode, otp!!)
+        }?.first
+
+        secureState.lastWallClockMs = nowWall
+        secureState.lastElapsedRealtimeMs = nowElapsed
+
+        if (matchedWindow == null) {
+            registerFailedAttempt(nowTrusted)
+            logW("Offline unlock denied: invalid OTP.")
+            audit("SECURITY", "OFFLINE_OTP_FAILED", "Invalid OTP attempt.")
+            return false
+        }
+
+        if (secureState.isWindowUsed(matchedWindow)) {
+            logW("Offline unlock denied: window already used.")
+            audit("SECURITY", "OFFLINE_OTP_REPLAY", "Replay rejected.")
+            return false
+        }
+
+        secureState.markWindowUsed(matchedWindow)
+        secureState.failedAttempts = 0
+        secureState.lockoutStage = 0
+        secureState.lockoutUntilWallMs = 0L
+        secureState.offlineUnlockCount = secureState.offlineUnlockCount + 1
+
+        val report = OfflineUnlockReport(
+            deviceId = deviceId,
+            windowEpoch = matchedWindow,
+            otpUsed = enteredCode,
+            verifiedAtWallMs = nowTrusted
+        )
+        if (!secureState.savePendingReport(report)) {
+            logE("Offline unlock aborted: could not persist pending unlock report.")
+            audit("SECURITY", "OFFLINE_OTP_REPORT_SAVE_FAIL", "Denied: pending report not saved.")
+            return false
+        }
+
+        onOfflineUnlockSuccess()
+        reportScheduler.enqueuePendingReportUpload()
+        onLocalUnlock()
         updateLastSyncTimestamp()
-        coordinator.setKioskMode(false, "")
+        audit(
+            "SECURITY",
+            "OFFLINE_OTP_UNLOCK",
+            "Local offline unlock accepted; backend sync report queued."
+        )
+        logI("Offline unlock accepted for window $matchedWindow; report queued.")
         return true
     }
 
-    /**
-     * Generates a 6-digit HMAC-SHA256 OTP code for a given IMEI and day epoch.
-     */
-    private fun generateHmacOtp(imei: String, dayEpoch: Long): String {
-        return try {
-            val message = "$imei-$dayEpoch"
-            val mac = Mac.getInstance("HmacSHA256")
-            val secretKey = SecretKeySpec(HMAC_SHARED_SECRET.toByteArray(StandardCharsets.UTF_8), "HmacSHA256")
-            mac.init(secretKey)
-            val hash = mac.doFinal(message.toByteArray(StandardCharsets.UTF_8))
-            
-            // Extract 6-digit integer from hash
-            val binary = ((hash[0].toInt() and 0x7F) shl 24) or
-                    ((hash[1].toInt() and 0xFF) shl 16) or
-                    ((hash[2].toInt() and 0xFF) shl 8) or
-                    (hash[3].toInt() and 0xFF)
-            
-            val otp = binary % 1_000_000
-            String.format("%06d", otp)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to generate HMAC OTP: ${e.message}")
-            "000000"
+    private fun registerFailedAttempt(nowWall: Long) {
+        val failed = secureState.failedAttempts + 1
+        if (failed >= MAX_FAILED_BEFORE_LOCKOUT) {
+            val stage = secureState.lockoutStage.coerceIn(0, LOCKOUT_DURATIONS_MS.lastIndex)
+            val duration = LOCKOUT_DURATIONS_MS[stage]
+            secureState.lockoutUntilWallMs = nowWall + duration
+            secureState.lockoutStage = (stage + 1).coerceAtMost(LOCKOUT_DURATIONS_MS.lastIndex)
+            secureState.failedAttempts = 0
+            audit("SECURITY", "OFFLINE_OTP_LOCKOUT_TRIGGERED", "Lockout stage=$stage durationMs=$duration")
+            logE("Offline unlock lockout triggered (stage=$stage).")
+        } else {
+            secureState.failedAttempts = failed
         }
     }
 }
