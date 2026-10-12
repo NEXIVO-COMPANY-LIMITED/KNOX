@@ -3,6 +3,8 @@ package com.nexivo.payo.data.repository
 import android.content.Context
 import android.util.Base64
 import android.util.Log
+import com.nexivo.payo.data.local.InstallmentDatabase
+import com.nexivo.payo.data.local.InstallmentEntity
 import com.nexivo.payo.data.model.CommandResultRequest
 import com.nexivo.payo.data.model.MobilePolicyResponse
 import com.nexivo.payo.data.model.ApiResponse
@@ -244,14 +246,58 @@ class DeviceRepository(
 
     suspend fun getDeviceInstallments(deviceId: String, imei: String): Result<List<InstallmentItem>> =
         withContext(Dispatchers.IO) {
+            val dao = context?.let { InstallmentDatabase.getDatabase(it).installmentDao() }
             try {
-                val header = authHeader().getOrElse { return@withContext Result.failure(it) }
+                val header = authHeader().getOrElse {
+                    dao?.let {
+                        val cached = it.getInstallments(deviceId)
+                        if (cached.isNotEmpty()) {
+                            return@withContext Result.success(cached.map { entity ->
+                                InstallmentItem(entity.installmentNumber, entity.dueDate, entity.amount, entity.status)
+                            })
+                        }
+                    }
+                    return@withContext Result.failure(it)
+                }
                 val response = apiService.getDeviceInstallments(header, imei, deviceId)
                 if (response.isSuccessful) {
                     auth401Policy.onHttpStatus(200)
-                    Result.success(response.body() ?: emptyList())
-                } else mapHttpFailure(response, "Failed to fetch installments")
+                    val items = response.body() ?: emptyList()
+                    dao?.let {
+                        it.clearInstallments(deviceId)
+                        it.insertInstallments(items.map { item ->
+                            InstallmentEntity(
+                                deviceId = deviceId,
+                                installmentNumber = item.installmentNumber,
+                                dueDate = item.dueDate,
+                                amount = item.amount,
+                                status = item.status
+                            )
+                        })
+                    }
+                    Result.success(items)
+                } else {
+                    dao?.let {
+                        val cached = it.getInstallments(deviceId)
+                        if (cached.isNotEmpty()) {
+                            return@withContext Result.success(cached.map { entity ->
+                                InstallmentItem(entity.installmentNumber, entity.dueDate, entity.amount, entity.status)
+                            })
+                        }
+                    }
+                    mapHttpFailure(response, "Failed to fetch installments")
+                }
             } catch (e: Exception) {
+                dao?.let {
+                    try {
+                        val cached = it.getInstallments(deviceId)
+                        if (cached.isNotEmpty()) {
+                            return@withContext Result.success(cached.map { entity ->
+                                InstallmentItem(entity.installmentNumber, entity.dueDate, entity.amount, entity.status)
+                            })
+                        }
+                    } catch (_: Exception) {}
+                }
                 Result.failure(e)
             }
         }
