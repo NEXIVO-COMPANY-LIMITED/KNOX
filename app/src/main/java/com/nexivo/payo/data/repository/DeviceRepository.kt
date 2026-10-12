@@ -3,6 +3,8 @@ package com.nexivo.payo.data.repository
 import android.content.Context
 import android.util.Base64
 import android.util.Log
+import com.nexivo.payo.data.model.CommandResultRequest
+import com.nexivo.payo.data.model.MobilePolicyResponse
 import com.nexivo.payo.data.model.ApiResponse
 import com.nexivo.payo.data.model.DeviceData
 import com.nexivo.payo.data.model.DeviceReauthRequest
@@ -273,4 +275,41 @@ class DeviceRepository(
                 Result.failure(e)
             }
         }
+
+    suspend fun getDevicePolicies(imei: String): Result<MobilePolicyResponse> =
+        withContext(Dispatchers.IO) {
+            try {
+                val header = authHeader().getOrElse { return@withContext Result.failure(it) }
+                val response = apiService.getDevicePolicies(header, imei, imei)
+                if (response.isSuccessful && response.body() != null) {
+                    auth401Policy.onHttpStatus(200)
+                    Result.success(response.body()!!)
+                } else mapHttpFailure(response, "Failed to fetch policies")
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+
+    suspend fun reportCommandResult(
+        imei: String,
+        commandId: String,
+        resultStatus: String,
+        resultPayload: Map<String, Any?>? = null
+    ): Result<ApiResponse> = withContext(Dispatchers.IO) {
+        try {
+            val header = authHeader().getOrElse { return@withContext Result.failure(it) }
+            val body = CommandResultRequest(
+                commandId = commandId,
+                resultStatus = resultStatus,
+                resultPayload = resultPayload
+            )
+            val response = apiService.reportCommandResult(header, imei, imei, body)
+            if (response.isSuccessful && response.body() != null) {
+                auth401Policy.onHttpStatus(200)
+                Result.success(response.body()!!)
+            } else mapHttpFailure(response, "Failed to report command result")
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }

@@ -1,5 +1,7 @@
 package com.nexivo.payo.data.remote
 
+import com.nexivo.payo.data.model.CommandResultRequest
+import com.nexivo.payo.data.model.MobilePolicyResponse
 import com.nexivo.payo.data.model.ApiResponse
 import com.nexivo.payo.data.model.DeviceData
 import com.nexivo.payo.data.model.EnrollmentRequest
@@ -127,6 +129,21 @@ interface ApiService {
     suspend fun reactivateWithSupportCode(
         @Body body: SupportReactivationRequest
     ): Response<SupportReactivationResponse>
+
+    @GET("api/v1/devices/{imei}/policies")
+    suspend fun getDevicePolicies(
+        @Header("Authorization") token: String,
+        @Header("X-Device-IMEI") headerImei: String,
+        @Path("imei") imei: String
+    ): Response<MobilePolicyResponse>
+
+    @POST("api/v1/devices/{imei}/command-results")
+    suspend fun reportCommandResult(
+        @Header("Authorization") token: String,
+        @Header("X-Device-IMEI") headerImei: String,
+        @Path("imei") imei: String,
+        @Body body: CommandResultRequest
+    ): Response<ApiResponse>
 
     // --- Existing public installment payment APIs (AllowAny; no device bearer) ---
 
