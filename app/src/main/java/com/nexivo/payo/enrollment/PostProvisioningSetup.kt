@@ -38,9 +38,18 @@ object PostProvisioningSetup {
     @Volatile
     private var lastRunElapsedMs: Long = 0L
 
-    fun run(context: Context, provisioningExtras: Bundle?, source: String) {
+    /** The admin extras (enrollment token) were already handed to EnrollmentManager. */
+    @Volatile
+    private var adminExtrasHandled: Boolean = false
+
+    fun run(context: Context, provisioningExtras: Bundle?, source: String, launchUi: Boolean = true) {
+        val carriesAdminExtras =
+            provisioningExtras?.getBundle(EnrollmentManager.EXTRA_ADMIN_EXTRAS_BUNDLE) != null
         val nowElapsed = SystemClock.elapsedRealtime()
-        if (lastRunElapsedMs > 0L && nowElapsed - lastRunElapsedMs < DEDUPE_WINDOW_MS) {
+        val recent = lastRunElapsedMs > 0L && nowElapsed - lastRunElapsedMs < DEDUPE_WINDOW_MS
+        // onEnabled (no admin extras) often lands first; the call that brings the
+        // extras must still run, or the enrollment token is never exchanged.
+        if (recent && !(carriesAdminExtras && !adminExtrasHandled)) {
             Log.i(TAG, "Skipping duplicate post-provisioning from $source")
             return
         }
@@ -103,10 +112,17 @@ object PostProvisioningSetup {
             }
         }
 
-        try {
-            EnrollmentManager(app).processProvisioningExtras(provisioningExtras)
-        } catch (e: Exception) {
-            Log.e(TAG, "Enrollment extras failed: ${e.message}", e)
+        if (carriesAdminExtras && adminExtrasHandled) {
+            // Compliance step and PROFILE_PROVISIONING_COMPLETE carry the same bundle:
+            // a second exchange would race the first and rotate its credentials.
+            Log.i(TAG, "Admin extras already handled; enrollment not repeated ($source).")
+        } else {
+            try {
+                EnrollmentManager(app).processProvisioningExtras(provisioningExtras)
+                if (carriesAdminExtras) adminExtrasHandled = true
+            } catch (e: Exception) {
+                Log.e(TAG, "Enrollment extras failed: ${e.message}", e)
+            }
         }
 
         try {
@@ -115,10 +131,12 @@ object PostProvisioningSetup {
             Log.e(TAG, "Failed to start DeviceMonitorService: ${e.message}", e)
         }
 
-        val launch = Intent(app, MainActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        if (launchUi) {
+            val launch = Intent(app, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+            app.startActivity(launch)
         }
-        app.startActivity(launch)
     }
 
     /**

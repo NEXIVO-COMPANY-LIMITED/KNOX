@@ -124,6 +124,33 @@
             </intent-filter>
         </service>
 
+        <!--
+          Android 12+ Device Owner provisioning (KME / QR): the setup wizard asks the
+          provisioning mode, then hands over the admin extras at the compliance step.
+          Without these two activities provisioning fails. BIND_DEVICE_ADMIN: system only.
+        -->
+        <activity
+            android:name=".enrollment.ProvisioningModeActivity"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.app.action.GET_PROVISIONING_MODE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".enrollment.PolicyComplianceActivity"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.app.action.ADMIN_POLICY_COMPLIANCE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".ui.lock.LockActivity"
             android:exported="false"
