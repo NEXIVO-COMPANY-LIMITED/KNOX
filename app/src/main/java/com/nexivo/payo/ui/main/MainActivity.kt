@@ -54,7 +54,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvImei: TextView
     private lateinit var tvServerStatus: TextView
     private lateinit var btnOfflineUnlock: Button
-    private lateinit var btnLabClearDeviceOwner: Button
+    private lateinit var btnViewInstallments: Button
+
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -99,13 +100,9 @@ class MainActivity : AppCompatActivity() {
         tvServerStatus = findViewById(R.id.tvServerStatus)
         btnOfflineUnlock = findViewById(R.id.btnOfflineUnlock)
         btnOfflineUnlock.setOnClickListener { showOfflineUnlockDialog() }
-        btnLabClearDeviceOwner = findViewById(R.id.btnLabClearDeviceOwner)
-        if (BuildConfig.ALLOW_DO_RELEASE) {
-            btnLabClearDeviceOwner.visibility = android.view.View.VISIBLE
-            btnLabClearDeviceOwner.setOnClickListener { confirmLabClearDeviceOwner() }
-        } else {
-            btnLabClearDeviceOwner.visibility = android.view.View.GONE
-        }
+        btnViewInstallments = findViewById(R.id.btnViewInstallments)
+        btnViewInstallments.setOnClickListener { showInstallmentsDialog() }
+
     }
 
     private fun initializeComponents() {
@@ -271,37 +268,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun confirmLabClearDeviceOwner() {
-        if (!BuildConfig.ALLOW_DO_RELEASE) {
-            Toast.makeText(this, R.string.lab_clear_device_owner_disabled, Toast.LENGTH_LONG).show()
-            return
-        }
-        AlertDialog.Builder(this)
-            .setTitle(R.string.lab_clear_device_owner_title)
-            .setMessage(R.string.lab_clear_device_owner_message)
-            .setPositiveButton(R.string.lab_clear_device_owner_confirm) { dialog, _ ->
-                dialog.dismiss()
-                LabDeviceOwnerRelease.releaseDeviceOwner(this).fold(
-                    onSuccess = {
-                        Toast.makeText(this, R.string.lab_clear_device_owner_success, Toast.LENGTH_LONG).show()
-                        updateUI(tvDeviceOwner, getString(R.string.device_owner_false))
-                        btnLabClearDeviceOwner.visibility = android.view.View.GONE
-                    },
-                    onFailure = { error ->
-                        Toast.makeText(
-                            this,
-                            getString(
-                                R.string.lab_clear_device_owner_failed,
-                                error.message ?: error.javaClass.simpleName
-                            ),
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                )
-            }
-            .setNegativeButton(android.R.string.cancel) { dialog, _ -> dialog.dismiss() }
-            .show()
-    }
+
 
     private fun showOfflineUnlockDialog() {
         if (!offlineLockManager.hasProvisionedKey()) {
@@ -341,6 +308,58 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateUI(view: TextView, text: String) {
         runOnUiThread { view.text = text }
+    }
+
+    private fun showInstallmentsDialog() {
+        lifecycleScope.launch {
+            val deviceId = identityManager.getDeviceId() ?: dataCollector.collectAll().deviceId
+            val imei = dataCollector.collectAll().imei ?: deviceId
+            val result = repository.getDeviceInstallments(deviceId, imei)
+            if (result.isSuccess) {
+                val items = result.getOrNull() ?: emptyList()
+                if (items.isEmpty()) {
+                    Toast.makeText(this@MainActivity, "No installments found.", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+                val sb = StringBuilder()
+                items.forEach { item ->
+                    sb.append("Installment #${item.installmentNumber}\n")
+                    sb.append("Amount: ${item.amount ?: "N/A"}\n")
+                    sb.append("Due Date: ${item.dueDate ?: "N/A"}\n")
+                    sb.append("Status: ${item.status?.uppercase() ?: "PENDING"}\n\n")
+                }
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Loan Installment Schedule")
+                    .setMessage(sb.toString().trim())
+                    .setPositiveButton("Close", null)
+                    .setNeutralButton("Pay Now") { _, _ ->
+                        showPaymentPromptDialog()
+                    }
+                    .show()
+            } else {
+                Toast.makeText(this@MainActivity, "Failed to load installments", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun showPaymentPromptDialog() {
+        val input = EditText(this).apply {
+            hint = "Enter Phone Number (e.g. 0712345678)"
+            inputType = InputType.TYPE_CLASS_PHONE
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Pay Installment")
+            .setView(input)
+            .setPositiveButton("Initiate") { _, _ ->
+                val phone = input.text.toString().trim()
+                if (phone.isNotBlank()) {
+                    Toast.makeText(this, "Payment initiated for $phone", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this, "Phone number required", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private companion object {

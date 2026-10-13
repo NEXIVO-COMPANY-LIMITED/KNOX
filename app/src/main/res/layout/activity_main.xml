@@ -75,13 +75,11 @@
         android:text="@string/lock_emergency_otp"
         android:layout_marginTop="20dp"/>
 
-    <!-- Lab channel only: shown when BuildConfig.ALLOW_DO_RELEASE is true. -->
     <Button
-        android:id="@+id/btnLabClearDeviceOwner"
+        android:id="@+id/btnViewInstallments"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/lab_clear_device_owner"
-        android:layout_marginTop="12dp"
-        android:visibility="gone"/>
+        android:text="View Installments &amp; Pay"
+        android:layout_marginTop="12dp"/>
 
 </LinearLayout>
