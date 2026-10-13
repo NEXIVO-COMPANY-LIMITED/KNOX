@@ -1,15 +1,11 @@
 package com.nexivo.payo.data.remote
 
 import com.nexivo.payo.data.model.ApiResponse
-import com.nexivo.payo.data.model.CommandResultRequest
 import com.nexivo.payo.data.model.DeviceData
-import com.nexivo.payo.data.model.DeviceReauthRequest
-import com.nexivo.payo.data.model.DeviceReauthResponse
+import com.nexivo.payo.data.model.DeviceInstallmentsResponse
 import com.nexivo.payo.data.model.EnrollmentRequest
 import com.nexivo.payo.data.model.EnrollmentResponse
 import com.nexivo.payo.data.model.HeartbeatResponse
-import com.nexivo.payo.data.model.InstallmentItem
-import com.nexivo.payo.data.model.MobilePolicyResponse
 import com.nexivo.payo.data.model.OfflineUnlockReportRequest
 import com.nexivo.payo.data.model.PublicInstallmentPayRequest
 import com.nexivo.payo.data.model.PublicInstallmentPayResponse
@@ -29,37 +25,11 @@ interface ApiService {
         @Body body: EnrollmentRequest
     ): Response<EnrollmentResponse>
 
-    @POST("api/v1/devices/reauth")
-    suspend fun reauthenticate(
-        @Body body: DeviceReauthRequest
-    ): Response<DeviceReauthResponse>
-
     @POST("api/v1/devices/report")
     suspend fun sendDeviceReport(
         @Header("Authorization") token: String,
         @Header("X-Device-IMEI") imei: String,
         @Body deviceData: DeviceData
-    ): Response<ApiResponse>
-
-    @POST("api/v1/devices/enroll")
-    suspend fun enrollDevice(
-        @Header("Authorization") token: String,
-        @Header("X-Device-IMEI") imei: String,
-        @Body deviceData: DeviceData
-    ): Response<ApiResponse>
-
-    @POST("api/v1/devices/enroll-sync")
-    suspend fun enrollSync(
-        @Header("Authorization") token: String,
-        @Header("X-Device-IMEI") imei: String,
-        @Body deviceData: DeviceData
-    ): Response<ApiResponse>
-
-    @GET("api/v1/devices/{imei}/status")
-    suspend fun getDeviceStatus(
-        @Header("Authorization") token: String,
-        @Header("X-Device-IMEI") headerImei: String,
-        @Path("imei") imei: String
     ): Response<ApiResponse>
 
     @POST("api/v1/devices/{imei}/heartbeat")
@@ -97,7 +67,7 @@ interface ApiService {
         @Header("Authorization") token: String,
         @Header("X-Device-IMEI") headerImei: String,
         @Path("deviceId") deviceId: String
-    ): Response<List<InstallmentItem>>
+    ): Response<DeviceInstallmentsResponse>
 
     @POST("api/v1/devices/{deviceId}/offline-unlock-report")
     suspend fun reportOfflineUnlock(
@@ -110,21 +80,6 @@ interface ApiService {
     suspend fun reactivateWithSupportCode(
         @Body body: SupportReactivationRequest
     ): Response<SupportReactivationResponse>
-
-    @GET("api/v1/devices/{imei}/policies")
-    suspend fun getDevicePolicies(
-        @Header("Authorization") token: String,
-        @Header("X-Device-IMEI") headerImei: String,
-        @Path("imei") imei: String
-    ): Response<MobilePolicyResponse>
-
-    @POST("api/v1/devices/{imei}/command-results")
-    suspend fun reportCommandResult(
-        @Header("Authorization") token: String,
-        @Header("X-Device-IMEI") headerImei: String,
-        @Path("imei") imei: String,
-        @Body body: CommandResultRequest
-    ): Response<ApiResponse>
 
     @POST("api/payments/public/loans/pay/lookup/")
     suspend fun lookupPublicLoans(

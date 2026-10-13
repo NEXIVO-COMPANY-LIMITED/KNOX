@@ -8,7 +8,7 @@
 # ----- Backend (required for release) -----
 # Required for release builds (must be https://). Optional for debug (empty allowed).
 # See docs/04_Operational_Guides/Release_Build_Config.md
-SERVER_BASE_URL=https://api.example.com/
+SERVER_BASE_URL=https://payoplan.com/
 
 # Optional / transitional DEBUG only. Release BuildConfig always embeds "".
 SERVER_API_KEY=
@@ -17,9 +17,21 @@ SERVER_API_KEY=
 # Pin SPKI public keys (primary + backup) so rotation does not brick clients.
 # Format: sha256/<base64>
 # Debug builds ignore these (pinning disabled).
-CERT_PIN_HOST=
-CERT_PIN_SHA256=
-CERT_PIN_SHA256_BACKUP=
+#
+# payoplan.com sits behind Cloudflare, which issues and rotates its edge
+# certificate from several CAs without notice. Never pin the leaf or an
+# intermediate: pin the CA roots. Values below were computed from the CAs'
+# own root certificates (pki.goog, letsencrypt.org); check before a release
+# with tools/verify-cert-pins.py against https://payoplan.com.
+#   GTS Root R4  sha256/mEflZT5enoR1FuXLgYYGqnVEoZvmf9c2bVBpiOjYQ0c=  (serves payoplan.com today)
+#   GTS Root R1  sha256/hxqRlPTu1bMS/0DITB1SSu0vd4u/8l8TjPgfaAp63Gc=
+#   ISRG Root X1 sha256/C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M=
+#   ISRG Root X2 sha256/diGVwiVYbubAI3RW4hB9xU8e/CH2GnkuvVFZE8zmgzI=
+CERT_PIN_HOST=payoplan.com
+CERT_PIN_SHA256=sha256/mEflZT5enoR1FuXLgYYGqnVEoZvmf9c2bVBpiOjYQ0c=
+CERT_PIN_SHA256_BACKUP=sha256/hxqRlPTu1bMS/0DITB1SSu0vd4u/8l8TjPgfaAp63Gc=
+# Comma-separated further pins (other CAs the CDN may switch to).
+CERT_PIN_SHA256_EXTRA=sha256/C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M=,sha256/diGVwiVYbubAI3RW4hB9xU8e/CH2GnkuvVFZE8zmgzI=
 
 # ----- Release signing (required for assembleProdRelease; fail closed) -----
 # STORE_FILE=release.keystore

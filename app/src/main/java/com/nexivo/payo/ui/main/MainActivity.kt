@@ -26,7 +26,6 @@ import com.nexivo.payo.data.repository.DeviceRepository
 import com.nexivo.payo.financing.OfflineLockManager
 import com.nexivo.payo.identity.DeviceIdentityManager
 import com.nexivo.payo.lock.DeviceLockController
-import com.nexivo.payo.policy.DeviceFinancingState
 import com.nexivo.payo.policy.LostStateBootstrap
 import com.nexivo.payo.policy.PolicyEngine
 import com.nexivo.payo.security.LabDeviceOwnerRelease
@@ -243,21 +242,13 @@ class MainActivity : AppCompatActivity() {
             }
 
             updateUI(tvStatus, getString(R.string.status_syncing))
-            repository.enrollSync(deviceData).fold(
-                onSuccess = { response ->
-                    updateUI(tvServerStatus, response.message)
-                    when (response.lockStatus.uppercase()) {
-                        "LOCKED", "HARDLOCK" -> {
-                            PolicyEngine(this@MainActivity).financingStateMachine()
-                                .transition(DeviceFinancingState.LOCKED, "ENROLL_SYNC_${response.lockStatus}")
-                            updateUI(tvStatus, getString(R.string.status_locked))
-                        }
-                        else -> {
-                            PolicyEngine(this@MainActivity).financingStateMachine()
-                                .transition(DeviceFinancingState.ACTIVE, "ENROLL_SYNC_OK")
-                            updateUI(tvStatus, getString(R.string.status_ok))
-                        }
-                    }
+            // Status only: DeviceMonitorService applies the lock state from its own
+            // heartbeat (grace and stale-lock rules live in HeartbeatLockMapper there).
+            repository.sendHeartbeat(deviceData.networkDeviceKey(), deviceData).fold(
+                onSuccess = { heartbeat ->
+                    val locked = heartbeat.content?.isLocked == true || heartbeat.actions?.hardlock == true
+                    updateUI(tvServerStatus, heartbeat.message ?: getString(R.string.status_ok))
+                    updateUI(tvStatus, getString(if (locked) R.string.status_locked else R.string.status_ok))
                 },
                 onFailure = { error ->
                     updateUI(tvServerStatus, error.message ?: getString(R.string.status_syncing))

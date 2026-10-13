@@ -1,19 +1,15 @@
 package com.nexivo.payo.data.repository
 
 import android.content.Context
-import android.util.Base64
 import android.util.Log
 import com.nexivo.payo.data.local.InstallmentDatabase
 import com.nexivo.payo.data.local.InstallmentEntity
 import com.nexivo.payo.data.model.ApiResponse
-import com.nexivo.payo.data.model.CommandResultRequest
 import com.nexivo.payo.data.model.DeviceData
-import com.nexivo.payo.data.model.DeviceReauthRequest
 import com.nexivo.payo.data.model.EnrollmentRequest
 import com.nexivo.payo.data.model.EnrollmentResponse
 import com.nexivo.payo.data.model.HeartbeatResponse
 import com.nexivo.payo.data.model.InstallmentItem
-import com.nexivo.payo.data.model.MobilePolicyResponse
 import com.nexivo.payo.data.model.OfflineUnlockReportRequest
 import com.nexivo.payo.data.model.RemoteCommand
 import com.nexivo.payo.data.remote.ApiClient
@@ -69,34 +65,6 @@ class DeviceRepository(
         return Result.failure(Exception("$label: HTTP ${response.code()}"))
     }
 
-    suspend fun reauthenticateWithDeviceKey(): Result<String> = withContext(Dispatchers.IO) {
-        try {
-            val identity = context?.let { DeviceIdentityManager(it) }
-                ?: return@withContext Result.failure(IllegalStateException("No context"))
-            val deviceId = identity.getDeviceId()
-                ?: return@withContext Result.failure(IllegalStateException("No deviceId"))
-            val challenge = "payo-reauth|${deviceId}|${System.currentTimeMillis()}"
-            val signature = identity.signData(challenge.toByteArray(Charsets.UTF_8))
-                ?: return@withContext Result.failure(IllegalStateException("Sign data failed"))
-            val body = DeviceReauthRequest(
-                deviceId = deviceId,
-                challenge = challenge,
-                signatureBase64 = Base64.encodeToString(signature, Base64.NO_WRAP)
-            )
-            val response = apiService.reauthenticate(body)
-            val payload = response.body()
-            if (response.isSuccessful && payload?.success == true && !payload.accessToken.isNullOrBlank()) {
-                identity.saveDeviceCredentials(deviceId, payload.accessToken)
-                auth401Policy.reset()
-                Result.success(payload.accessToken)
-            } else {
-                Result.failure(Exception("Reauth failed"))
-            }
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
     suspend fun enrollWithToken(
         enrollmentToken: String,
         publicKeyPem: String,
@@ -124,32 +92,6 @@ class DeviceRepository(
         }
     }
 
-    suspend fun enrollDevice(data: DeviceData): Result<ApiResponse> = withContext(Dispatchers.IO) {
-        try {
-            val header = authHeader().getOrElse { return@withContext Result.failure(it) }
-            val response = apiService.enrollDevice(header, data.networkDeviceKey(), data)
-            if (response.isSuccessful) {
-                auth401Policy.onHttpStatus(200)
-                Result.success(response.body()!!)
-            } else mapHttpFailure(response, "Enroll failed")
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    suspend fun enrollSync(data: DeviceData): Result<ApiResponse> = withContext(Dispatchers.IO) {
-        try {
-            val header = authHeader().getOrElse { return@withContext Result.failure(it) }
-            val response = apiService.enrollSync(header, data.networkDeviceKey(), data)
-            if (response.isSuccessful) {
-                auth401Policy.onHttpStatus(200)
-                Result.success(response.body()!!)
-            } else mapHttpFailure(response, "Enroll sync failed")
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
     suspend fun sendDeviceReport(data: DeviceData): Result<ApiResponse> = withContext(Dispatchers.IO) {
         try {
             val header = authHeader().getOrElse { return@withContext Result.failure(it) }
@@ -158,19 +100,6 @@ class DeviceRepository(
                 auth401Policy.onHttpStatus(200)
                 Result.success(response.body()!!)
             } else mapHttpFailure(response, "Report failed")
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    suspend fun getDeviceStatus(imei: String): Result<ApiResponse> = withContext(Dispatchers.IO) {
-        try {
-            val header = authHeader().getOrElse { return@withContext Result.failure(it) }
-            val response = apiService.getDeviceStatus(header, imei, imei)
-            if (response.isSuccessful) {
-                auth401Policy.onHttpStatus(200)
-                Result.success(response.body()!!)
-            } else mapHttpFailure(response, "Status check failed")
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -242,7 +171,7 @@ class DeviceRepository(
                 val response = apiService.getDeviceInstallments(header, imei, deviceId)
                 if (response.isSuccessful) {
                     auth401Policy.onHttpStatus(200)
-                    val items = response.body() ?: emptyList()
+                    val items = response.body()?.installments ?: emptyList()
                     dao?.let {
                         it.clearInstallments(deviceId)
                         it.insertInstallments(items.map { item ->
@@ -302,40 +231,4 @@ class DeviceRepository(
             }
         }
 
-    suspend fun getDevicePolicies(imei: String): Result<MobilePolicyResponse> =
-        withContext(Dispatchers.IO) {
-            try {
-                val header = authHeader().getOrElse { return@withContext Result.failure(it) }
-                val response = apiService.getDevicePolicies(header, imei, imei)
-                if (response.isSuccessful && response.body() != null) {
-                    auth401Policy.onHttpStatus(200)
-                    Result.success(response.body()!!)
-                } else mapHttpFailure(response, "Failed to fetch policies")
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
-        }
-
-    suspend fun reportCommandResult(
-        imei: String,
-        commandId: String,
-        resultStatus: String,
-        resultPayload: Map<String, Any?>? = null
-    ): Result<ApiResponse> = withContext(Dispatchers.IO) {
-        try {
-            val header = authHeader().getOrElse { return@withContext Result.failure(it) }
-            val body = CommandResultRequest(
-                commandId = commandId,
-                resultStatus = resultStatus,
-                resultPayload = resultPayload
-            )
-            val response = apiService.reportCommandResult(header, imei, imei, body)
-            if (response.isSuccessful && response.body() != null) {
-                auth401Policy.onHttpStatus(200)
-                Result.success(response.body()!!)
-            } else mapHttpFailure(response, "Failed to report command result")
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
 }

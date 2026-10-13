@@ -168,6 +168,7 @@ android {
         buildConfigField("String", "CERT_PIN_HOST", "\"\"")
         buildConfigField("String", "CERT_PIN_SHA256_PRIMARY", "\"\"")
         buildConfigField("String", "CERT_PIN_SHA256_BACKUP", "\"\"")
+        buildConfigField("String", "CERT_PIN_SHA256_EXTRA", "\"\"")
         buildConfigField("boolean", "CERT_PINNING_ENABLED", "false")
         // Overridden per variant (androidComponents below): true only for labDebug.
         buildConfigField("boolean", "ALLOW_DO_RELEASE", "false")
@@ -257,6 +258,8 @@ android {
             val pinHost = configValue("CERT_PIN_HOST") ?: ""
             val pinPrimary = configValue("CERT_PIN_SHA256") ?: configValue("CERT_PIN_SHA256_PRIMARY") ?: ""
             val pinBackup = configValue("CERT_PIN_SHA256_BACKUP") ?: ""
+            // Comma-separated sha256/ pins: the CA roots the CDN may switch to.
+            val pinExtra = configValue("CERT_PIN_SHA256_EXTRA") ?: ""
 
             buildConfigField("String", "SERVER_BASE_URL", serverBaseUrl.toBuildConfigString())
             // Release never embeds SERVER_API_KEY — not read from local.properties or env.
@@ -264,6 +267,7 @@ android {
             buildConfigField("String", "CERT_PIN_HOST", pinHost.toBuildConfigString())
             buildConfigField("String", "CERT_PIN_SHA256_PRIMARY", pinPrimary.toBuildConfigString())
             buildConfigField("String", "CERT_PIN_SHA256_BACKUP", pinBackup.toBuildConfigString())
+            buildConfigField("String", "CERT_PIN_SHA256_EXTRA", pinExtra.toBuildConfigString())
             buildConfigField("boolean", "CERT_PINNING_ENABLED", "true")
 
             isMinifyEnabled = true

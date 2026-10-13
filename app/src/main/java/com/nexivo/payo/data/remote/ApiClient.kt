@@ -36,11 +36,12 @@ object ApiClient {
 
         if (BuildConfig.CERT_PINNING_ENABLED) {
             // Release-only: primary + backup SPKI pins (rotation-safe). Pin failure ≠ device lock.
+            // Extra pins cover every CA the CDN may issue from (it rotates CAs without notice).
             val host = BuildConfig.CERT_PIN_HOST
-            val primary = BuildConfig.CERT_PIN_SHA256_PRIMARY
-            val backup = BuildConfig.CERT_PIN_SHA256_BACKUP
+            val pins = listOf(BuildConfig.CERT_PIN_SHA256_PRIMARY, BuildConfig.CERT_PIN_SHA256_BACKUP) +
+                BuildConfig.CERT_PIN_SHA256_EXTRA.split(',').map { it.trim() }.filter { it.isNotEmpty() }
             val pinner = CertificatePinner.Builder()
-                .add(host, primary, backup)
+                .add(host, *pins.distinct().toTypedArray())
                 .build()
             clientBuilder.certificatePinner(pinner)
         }
