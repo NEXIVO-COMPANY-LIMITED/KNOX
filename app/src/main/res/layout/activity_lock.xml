@@ -19,22 +19,26 @@
         android:gravity="center"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toTopOf="@id/actionSection"
-        app:layout_constraintVertical_bias="0.35">
+        app:layout_constraintVertical_bias="0.25">
 
-        <!-- Lock Badge -->
-        <FrameLayout
-            android:layout_width="72dp"
-            android:layout_height="72dp"
-            android:background="@drawable/bg_lock_badge"
-            android:layout_marginBottom="24dp">
+        <!-- Brand Logo / Badge -->
+        <androidx.cardview.widget.CardView
+            android:layout_width="88dp"
+            android:layout_height="88dp"
+            app:cardCornerRadius="20dp"
+            app:cardElevation="8dp"
+            app:cardBackgroundColor="#1E293B"
+            app:cardPreventCornerOverlap="true"
+            android:layout_marginBottom="20dp">
 
             <ImageView
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:layout_gravity="center"
-                android:src="@drawable/ic_lock_outline"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:padding="12dp"
+                android:src="@drawable/payo_logo"
+                android:scaleType="centerInside"
                 android:contentDescription="@null" />
-        </FrameLayout>
+        </androidx.cardview.widget.CardView>
 
         <!-- Title -->
         <TextView
@@ -42,11 +46,11 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="@string/lock_title"
-            android:textColor="#FF0000"
-            android:textSize="30sp"
+            android:textColor="#EF4444"
+            android:textSize="28sp"
             android:textStyle="bold"
             android:textAlignment="center"
-            android:layout_marginBottom="12dp" />
+            android:layout_marginBottom="8dp" />
 
         <!-- Subtitle / Reason -->
         <TextView
